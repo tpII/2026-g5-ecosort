@@ -1,4 +1,4 @@
-# Bitácora de Proyecto - [Nombre del Proyecto]
+# Bitácora de Proyecto - EcoSort
 
 ## [2026-09-1] - Semana 1
 
