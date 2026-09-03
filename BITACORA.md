@@ -1,4 +1,4 @@
-# Bitácora de Proyecto - [Nombre del Proyecto]
+# Bitácora de Proyecto - ECOSORT - G5
 
 ## [2026-09-1] - Semana 1
 
