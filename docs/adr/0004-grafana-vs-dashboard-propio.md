@@ -1,6 +1,9 @@
 # ADR 0004 — Visualización y observabilidad: Grafana vs. dashboard propio
 
-**Estado:** Pendiente confirmar con el docente.
+**Estado:** Rechazada — reemplazada por [ADR 0005](0005-dashboard-propio-reemplaza-grafana.md).
+El docente pidió que el equipo desarrolle un dashboard propio en vez de usar
+Grafana; se conserva este documento como registro de la evaluación
+original.
 
 ## Contexto
 

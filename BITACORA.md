@@ -40,6 +40,8 @@
 - Se realizaron pruebas con **distintos modelos y herramientas de detección y clasificación de residuos**, evaluando su comportamiento en diferentes escenarios.
 - Se probaron los modelos utilizando imágenes con **distintos tipos de fondos, iluminación y disposición de los residuos**, con el objetivo de analizar su capacidad de detección en condiciones similares a las que tendrá el sistema real.
 - A partir de estas pruebas se comenzó a comparar el desempeño de las distintas alternativas para definir qué solución resulta más adecuada para integrar posteriormente en la Raspberry Pi y en el pipeline de detección del proyecto.
+- Se realizó la entrega del Plan de Proyecto, junto con la creación de un power point y un video presentación del Proyecto. 
+- se actualizó la arquitectura a un documento .mmd a recomendación del docente.
 
 ### Pendiente para Semana 3
 

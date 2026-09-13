@@ -1,0 +1,29 @@
+---
+config:
+  theme: redux
+---
+flowchart LR
+     subgraph PI["🍓 Raspberry Pi 3 — modo Access Point · 192.168.20.1"]
+        CAM["📷 <br/> Cámara USB"]
+        SERVOS["⚙️ <br/>Servos x4"]
+        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x4"]
+        MOSQ["📡 <br/>MOSQUITTO<br/>Broker MQTT"]
+        NODEEXP["📈 <br/> NODE_EXPORTER<br/>cpu · ram · tmp"]
+
+        CAM --> INF
+        INF -->|GPIO x4| SERVOS
+        INF -->|event!| MOSQ
+    end
+
+    subgraph HOST["💻 Host cliente / servidor · 192.168.20.2"]
+        ADAPTER["🐍 <br/>ADAPTER MQTT<br/>paho-mqtt<br/>suscriber MQTT"]
+        SQLITE["🗄️ <br/> SQLITE DB<br/>persistencia · eventos"]
+        PROM["🔥 <br/>PROMETHEUS<br/>time series metrics"]
+        DASH["🖥️ <br/>Dashboard Sistema +<br/>Métricas + Alertas"]
+        ADAPTER -->|Insert| SQLITE
+        SQLITE -->|Datasource| DASH
+        PROM -->|Datasource| DASH
+    end
+
+    MOSQ -->|"MQTT · WiFi (AP)"| ADAPTER
+    NODEEXP -->|"Scrape · WiFi (AP)"| PROM
