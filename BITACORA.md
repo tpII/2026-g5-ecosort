@@ -30,3 +30,20 @@
 - Definir circuito de Alimentación para los componentes de Hardware.
 - Hacer pruebas de los modelos a utilizar de manera local dentro del repositorio.
 - Definir en el `docs/plan-de-proyecto.pdf` los modelos de mvp con los que vamos a trabajar en las distintas instancias del proyecto.
+
+## [2026-09-13] - Semana 2
+
+### Avances del proyecto
+
+- Se avanzó en la elaboración del informe del proyecto, trabajando sobre la definición y documentación de los **requerimientos**, los **objetivos principales** y el alcance del sistema.
+- Se trabajó en la definición del **circuito de alimentación** para los distintos componentes de hardware, considerando las necesidades de alimentación de la Raspberry Pi, los servos y los demás componentes involucrados.
+- Se realizaron pruebas con **distintos modelos y herramientas de detección y clasificación de residuos**, evaluando su comportamiento en diferentes escenarios.
+- Se probaron los modelos utilizando imágenes con **distintos tipos de fondos, iluminación y disposición de los residuos**, con el objetivo de analizar su capacidad de detección en condiciones similares a las que tendrá el sistema real.
+- A partir de estas pruebas se comenzó a comparar el desempeño de las distintas alternativas para definir qué solución resulta más adecuada para integrar posteriormente en la Raspberry Pi y en el pipeline de detección del proyecto.
+
+### Pendiente para Semana 3
+
+- Continuar con las pruebas y selección del modelo de detección de residuos.
+- Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.
+- Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.
+- Continuar con la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.
