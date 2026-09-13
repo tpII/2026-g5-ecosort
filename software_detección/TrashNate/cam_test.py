@@ -2,31 +2,36 @@ import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
 
-# Cargar modelo entrenado
-model = load_model("modelo_trashnet.h5")
+model = load_model("modelo_trashnet.keras")
 class_names = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
 
-cap = cv2.VideoCapture(0)  # abre la webcam
+cap = cv2.VideoCapture(0)
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    # Preprocesar imagen
-    img = cv2.resize(frame, (128, 128))       # redimensionar
-    img = np.expand_dims(img, axis=0) / 255.0 # normalizar
+    # 1. Convertir BGR a RGB
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    
+    # 2. Redimensionar a (128, 128)
+    img = cv2.resize(rgb, (128, 128))
+    
+    # 3. Expandir dimensión batch (sin dividir por 255 porque el modelo ya tiene Rescaling)
+    img = np.expand_dims(img, axis=0).astype(np.float32)
 
-    # Predicción
-    pred = model.predict(img)
-    label = class_names[np.argmax(pred)]
+    # 4. Inferencia
+    pred = model.predict(img, verbose=0)
+    idx = np.argmax(pred[0])
+    confidence = pred[0][idx] * 100
+    label = f"{class_names[idx]} ({confidence:.1f}%)"
 
-    # Mostrar resultado en pantalla
-    cv2.putText(frame, f"Prediccion: {label}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+    # Mostrar en pantalla
+    cv2.putText(frame, f"Clase: {label}", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
     cv2.imshow("Clasificador TrashNet", frame)
 
-    # salir con 'q'
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
