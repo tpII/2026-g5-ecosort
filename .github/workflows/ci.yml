@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      vision: ${{ steps.filter.outputs.vision }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            vision:
+              - 'vision/**'
+              - 'software_detección/TrashNate/Data/**'
+
+  vision:
+    needs: changes
+    if: needs.changes.outputs.vision == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build_image
+        run: docker build -t ecosort-vision ./vision
+
+      - name: lint_check
+        run: |
+          docker run --rm ecosort-vision -m py_compile \
+            dataset.py train.py classes.py evaluate.py export_tflite.py webcam_test.py
+
+      - name: smoke_test
+        run: |
+          docker run --rm \
+            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/runs:/app/runs" \
+            ecosort-vision train.py \
+              --data-dir /data/software_detección/TrashNate/Data/archive/dataset-resized \
+              --img-size 96 --head-epochs 1 --finetune-epochs 1 --finetune-layers 5 \
+              --out-dir runs/ci-smoke
+
+          docker run --rm \
+            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/runs:/app/runs" \
+            ecosort-vision evaluate.py --run-dir runs/ci-smoke
+
+          docker run --rm \
+            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/runs:/app/runs" \
+            ecosort-vision export_tflite.py --run-dir runs/ci-smoke
+  ci-ok:
+    needs: [vision]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: ci_check
+        run: |
+          if [ "${{ needs.vision.result }}" = "failure" ]; then
+            echo "vision falló"
+            exit 1
+          fi
+          echo "ok"

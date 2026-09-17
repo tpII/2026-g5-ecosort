@@ -1,0 +1,25 @@
+# uso: docker compose run --rm train   (o evaluate / export)
+# corre igual en cualquier SO con Docker instalado, sin activar ningún venv.
+
+services:
+  train:
+    build: .
+    volumes:
+      - ../software_detección:/data/software_detección:ro
+      - ./runs:/app/runs
+    command: >
+      train.py --data-dir /data/software_detección/TrashNate/Data/archive/dataset-resized
+
+  evaluate:
+    build: .
+    volumes:
+      - ../software_detección:/data/software_detección:ro
+      - ./runs:/app/runs
+    command: evaluate.py --run-dir runs/mobilenetv3small
+
+  export:
+    build: .
+    volumes:
+      - ../software_detección:/data/software_detección:ro
+      - ./runs:/app/runs
+    command: export_tflite.py --run-dir runs/mobilenetv3small

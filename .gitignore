@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+CLAUDE.md
+
+# vision — artefactos de entrenamiento (modelos, checkpoints, .tflite)
+vision/runs/
+*.keras
+*.h5
+*.tflite
