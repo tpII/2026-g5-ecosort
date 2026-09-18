@@ -10,3 +10,6 @@ vision/runs/
 *.keras
 *.h5
 *.tflite
+!raspberry/modelo/*.tflite
+eventos.db
+*.log
