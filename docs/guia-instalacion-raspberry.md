@@ -19,7 +19,8 @@ Cámara USB → ecosort_pi.py ──MQTT (Mosquitto)──→ dashboard.py → e
 | `raspberry/dashboard.py` | Se suscribe a MQTT, guarda en SQLite y sirve el panel web (conteo, vivo, CSV, reinicio). |
 | `raspberry/vista_en_vivo.py` | Herramienta de prueba: video en el navegador con indicador de nitidez para enfocar. |
 | `raspberry/mosquitto/ecosort.conf` | Configuración del broker Mosquitto. |
-| `software_detección/MobileNetV2/entrenar_ecosort.ipynb` | Notebook de Google Colab que entrena el modelo y lo exporta a TFLite. |
+| `vision/notebooks/entrenar_colab.ipynb` | Notebook de Google Colab que entrena el modelo y lo exporta a TFLite. |
+| `vision/` | Código de entrenamiento versionado (el notebook lo llama, no reimplementa nada) — ver `vision/README.md`. |
 | `schema/eventos.sql` | Estructura de la tabla de eventos. |
 
 Tópicos MQTT (`<id>` = `ecosort-01`):
@@ -186,7 +187,7 @@ Se usa **transfer learning sobre MobileNetV2** preentrenada con ImageNet (ADR 00
 con el dataset TrashNet (6 clases: cardboard, glass, metal, paper, plastic, trash).
 
 1. Entrar a https://colab.research.google.com → *Subir* →
-   `software_detección/MobileNetV2/entrenar_ecosort.ipynb`.
+   `vision/notebooks/entrenar_colab.ipynb`.
 2. *Entorno de ejecución → Cambiar tipo de entorno de ejecución → GPU (T4)*.
    Si no conecta, probar con **CPU** (tarda más, el resultado es el mismo).
 3. *Entorno de ejecución → Ejecutar todas*. Al final se descarga `ecosort_modelo.zip`.

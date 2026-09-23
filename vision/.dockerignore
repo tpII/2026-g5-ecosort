@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 runs/
+data/
 *.keras
 *.h5
 *.tflite

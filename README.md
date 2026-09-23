@@ -7,21 +7,20 @@ orgánico) basado en visión por computadora sobre Raspberry Pi 3, con un
 mecanismo físico de 4 compuertas y un pipeline de datos hacia un dashboard de
 monitoreo.
 
-> **Estado del repositorio:** fin de Semana 2 — entrega del Plan de Proyecto y
-> primeros prototipos de código. Además de la documentación de arquitectura y
-> las ADRs, ya hay pruebas locales de modelos de clasificación
-> (`software_detección/TrashNate`) y el circuito de alimentación de hardware
-> definido.
+> **Estado del repositorio:** fin de Semana 3 — pipeline funcionando de
+> punta a punta: modelo (`vision/`, MobileNetV2 desplegado) → Raspberry Pi
+> (`raspberry/`, captura + inferencia + MQTT + dashboard) → guía de
+> instalación. Roles del equipo repartidos por área (ver tabla de Equipo).
 
 ---
 
 ## Equipo
 
-| Integrante | usuario |
-|---|---|
-| Francisco Estrada | `festradax07` |
-| Micaela Taini | `mikitalinda` |
-| David Alvarez | `davidalvarezok` |
+| Integrante | usuario | área |
+|---|---|---|
+| Francisco Estrada | `festradax07` | Backend y comunicación (MQTT, adaptador, schema, CI) |
+| Micaela Taini | `mikitalinda` | Modelo (`vision/`, datos, entrenamiento) |
+| David Alvarez | `davidalvarezok` | Firmware (servos/GPIO) y frontend del dashboard |
 
 Docente/cátedra: seguimiento de decisiones (ver ADRs con estado *Pendiente
 confirmar con el docente*).
@@ -96,22 +95,25 @@ sale de esta red, por lo que se acepta operar **sin TLS ni autenticación**.
 
 ---
 
-## Prototipo de detección — `software_detección/TrashNate`
+## Modelo — [`vision/`](vision/)
 
-Primeras pruebas locales de clasificación de imágenes, corriendo sobre el
-dataset público [TrashNet](https://github.com/garythung/trashnet)
-(`Data/archive/dataset-resized/`, 6 clases: cardboard, glass, metal, paper,
-plastic, trash — todavía no mapeadas a las 4 clases finales del producto):
+Transfer learning (ADR 0001) sobre el dataset público
+[TrashNet](https://github.com/garythung/trashnet) (`vision/data/trashnet/`,
+6 clases: cardboard, glass, metal, paper, plastic, trash — todavía sin
+mapear a las 4 clases finales del producto, ver `vision/classes.py`).
+Backbone por defecto: **MobileNetV2 224px**, el mismo que está desplegado
+en `raspberry/modelo/`; `mobilenetv3small` queda como alternativa para
+comparar en igualdad de condiciones. Se entrena en Colab
+([`vision/notebooks/entrenar_colab.ipynb`](vision/notebooks/entrenar_colab.ipynb))
+o local/Docker — ver [`vision/README.md`](vision/README.md).
 
-- [`main.py`](software_detección/TrashNate/main.py): entrena una CNN
-  (Keras/TensorFlow) con data augmentation y exporta `modelo_trashnet.h5`.
-- [`cam_test.py`](software_detección/TrashNate/cam_test.py): prueba el
-  modelo entrenado en vivo contra la webcam (OpenCV).
+## Raspberry Pi — [`raspberry/`](raspberry/)
 
-Es un prototipo exploratorio para comparar modelos y condiciones (fondos,
-iluminación, disposición del residuo) antes de definir el modelo final —
-todavía no exporta a TFLite ni corre sobre la Pi (ver ADR 0001 y pendientes
-de Semana 3).
+Runtime desplegado: captura por cámara USB, inferencia TFLite, conteo de
+objetos por diferencia de fondo, publicación MQTT (Mosquitto) y un
+dashboard propio (SQLite + panel web) que se suscribe a esos eventos. Guía
+completa de puesta en marcha:
+[`docs/guia-instalacion-raspberry.md`](docs/guia-instalacion-raspberry.md).
 
 ---
 
@@ -152,11 +154,16 @@ de Semana 3).
 │   │   └── varios-prototipos-propuestos.pdf
 │   └── presentaciones/
 │       └── EcoSort_Presentacion.pdf
-└── software_detección/
-    └── TrashNate/                            # Prototipo de clasificación (CNN + dataset TrashNet)
-        ├── main.py
-        ├── cam_test.py
-        └── Data/archive/dataset-resized/
+├── vision/                                   # entrenamiento del modelo (ver vision/README.md)
+│   ├── data/trashnet/                       # dataset TrashNet versionado
+│   ├── notebooks/entrenar_colab.ipynb       # entrena en Colab, llama a estos scripts
+│   ├── models.py, train.py, evaluate.py, export_tflite.py, webcam_test.py
+│   └── Dockerfile, docker-compose.yml       # entrenar/evaluar/exportar reproducible
+├── raspberry/                                # runtime desplegado en la Pi
+│   ├── modelo/                              # ecosort_int8.tflite, ecosort_fp32.tflite, labels.txt
+│   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, dashboard.py, vista_en_vivo.py
+│   └── mosquitto/ecosort.conf
+└── schema/eventos.sql
 ```
 
 Referenciados en la documentación pero **aún no versionados**:
@@ -178,20 +185,21 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 
 ---
 
-## Avances (Semana 2)
+## Avances (Semana 3)
 
-- [x] Definición del circuito de alimentación de los componentes de hardware.
-- [x] Pruebas locales de modelos de clasificación de residuos (`software_detección/TrashNate`, dataset TrashNet), variando fondos, iluminación y disposición del residuo.
-- [x] Entrega del Plan de Proyecto, con documentación de requerimientos, objetivos y alcance.
-- [x] Presentación del proyecto: PowerPoint y video.
-- [x] Migración del diagrama de arquitectura a Mermaid (`docs/diagramas/arquitectura.mmd`), a pedido del docente.
+- [x] Mergeado el runtime completo de la Raspberry Pi (`raspberry/`): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard propio — funcionando de punta a punta contra la Pi real.
+- [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
+- [x] Unificados los dos pipelines de entrenamiento en `vision/`, con MobileNetV2 como backbone por defecto y MobileNetV3Small como alternativa a comparar.
+- [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
 
-## Pendiente para Semana 3
+## Pendiente para Semana 4
 
-- [ ] Continuar las pruebas y avanzar en la selección del modelo de detección de residuos.
-- [ ] Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.
-- [ ] Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.
-- [ ] Continuar la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.
+- [ ] Fotos propias del gabinete (con la clase orgánico) para reentrenar — la mejora de precisión más importante pendiente.
+- [ ] Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto.
+- [ ] Firmware: control de los 4 servos por GPIO (bloqueado por hardware, llega en unas semanas).
+- [ ] Separar `dashboard.py` en backend (API) y frontend, y congelar el contrato de datos MQTT entre las 3 áreas.
+
+Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
 
 Cronograma general: dos tramos de entrega (octubre / noviembre). ML es la ruta
 crítica; la observabilidad del dispositivo se aborda recién cerca de la

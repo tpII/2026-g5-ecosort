@@ -1,11 +1,15 @@
-"""transfer learning sobre MobileNetV3Small (ADR 0001), reemplaza la CNN
-desde cero de TrashNate/main.py.
+"""transfer learning para el clasificador de residuos (ADR 0001).
+
+default: MobileNetV2 224px — el mismo backbone/resolución que
+software_detección/MobileNetV2/entrenar_ecosort.ipynb, el que está
+desplegado hoy en raspberry/modelo/. --backbone mobilenetv3small queda para
+comparar en igualdad de condiciones (ver vision/README.md).
 
 TODO: dataset trae 6 clases (TrashNet) pero el gabinete tiene 4 compuertas,
 metal no tiene gate. por ahora entreno con las 6 tal cual, el mapeo queda
 en classes.py hasta que lo definamos.
 
-uso: python train.py --img-size 128 --head-epochs 15 --finetune-epochs 10
+uso: python train.py --head-epochs 15 --finetune-epochs 15
 """
 
 import argparse
@@ -17,69 +21,30 @@ import tensorflow as tf
 from sklearn.utils.class_weight import compute_class_weight
 
 from dataset import build_manifest, make_dataset, split_manifest
+from models import BACKBONES, build_model, unfreeze_last_layers
 
-DEFAULT_DATA_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "software_detección" / "TrashNate" / "Data" / "archive" / "dataset-resized"
-)
-
-
-def build_model(num_classes: int, img_size: int, alpha: float = 1.0):
-    # alpha=1.0: los pesos imagenet de keras para v3 solo están para ese ancho.
-    # si necesito algo más chico para la Pi, cambiar a MobileNetV2 (soporta 0.35/0.5/0.75/1.0)
-    base = tf.keras.applications.MobileNetV3Small(
-        input_shape=(img_size, img_size, 3),
-        alpha=alpha,
-        include_top=False,
-        weights="imagenet",
-        pooling="avg",
-        include_preprocessing=True,  # normaliza internamente, espera [0,255]
-    )
-    base.trainable = False
-
-    augment = tf.keras.Sequential([
-        tf.keras.layers.RandomFlip("horizontal"),
-        tf.keras.layers.RandomRotation(0.1),
-        tf.keras.layers.RandomZoom(0.1),
-        # brightness/contrast fuerte porque TrashNet es fondo de estudio parejo,
-        # la webcam no
-        tf.keras.layers.RandomBrightness(0.25),
-        tf.keras.layers.RandomContrast(0.25),
-    ], name="augmentation")
-
-    inputs = tf.keras.Input(shape=(img_size, img_size, 3))
-    x = augment(inputs)
-    x = base(x, training=False)
-    x = tf.keras.layers.Dropout(0.3)(x)
-    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
-
-    model = tf.keras.Model(inputs, outputs, name="ecosort_mobilenetv3small")
-    return model, base
-
-
-def unfreeze_last_layers(base: tf.keras.Model, n_layers: int):
-    base.trainable = True
-    for layer in base.layers[:-n_layers]:
-        layer.trainable = False
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data" / "trashnet"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backbone", choices=BACKBONES, default="mobilenetv2")
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
-    parser.add_argument("--img-size", type=int, default=128)
+    parser.add_argument("--img-size", type=int, default=224)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--val-size", type=float, default=0.15)
     parser.add_argument("--test-size", type=float, default=0.15)
     parser.add_argument("--head-epochs", type=int, default=15)
-    parser.add_argument("--finetune-epochs", type=int, default=10)
-    parser.add_argument("--finetune-layers", type=int, default=30,
+    parser.add_argument("--finetune-epochs", type=int, default=15)
+    parser.add_argument("--finetune-layers", type=int, default=40,
                          help="Cuántas capas finales de la base descongelar en la fase 2")
-    parser.add_argument("--out-dir", default="runs/mobilenetv3small")
+    parser.add_argument("--out-dir", default=None,
+                         help="default: runs/<backbone>")
     args = parser.parse_args()
+    out_dir = Path(args.out_dir or f"runs/{args.backbone}")
 
     data_dir = Path(args.data_dir)
-    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     img_size = (args.img_size, args.img_size)
 
@@ -102,7 +67,7 @@ def main():
     class_weight = dict(enumerate(class_weight_values))
     print(f"Class weights (por desbalance del dataset): {class_weight}")
 
-    model, base = build_model(len(classes), args.img_size, alpha=args.alpha)
+    model, base = build_model(args.backbone, len(classes), args.img_size, alpha=args.alpha)
     model.summary()
 
     checkpoint_path = out_dir / "best.keras"
@@ -149,6 +114,8 @@ def main():
     # evaluate.py y export_tflite.py necesitan esto para reproducir el mismo split
     (out_dir / "classes.json").write_text(json.dumps(classes, ensure_ascii=False, indent=2))
     (out_dir / "split.json").write_text(json.dumps({
+        "backbone": args.backbone,
+        "alpha": args.alpha,
         "data_dir": str(data_dir),
         "val_size": args.val_size,
         "test_size": args.test_size,

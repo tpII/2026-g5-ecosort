@@ -18,7 +18,6 @@ jobs:
           filters: |
             vision:
               - 'vision/**'
-              - 'software_detección/TrashNate/Data/**'
 
   vision:
     needs: changes
@@ -33,25 +32,24 @@ jobs:
       - name: lint_check
         run: |
           docker run --rm ecosort-vision -m py_compile \
-            dataset.py train.py classes.py evaluate.py export_tflite.py webcam_test.py
+            dataset.py models.py train.py classes.py evaluate.py export_tflite.py webcam_test.py
 
       - name: smoke_test
         run: |
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision train.py \
-              --data-dir /data/software_detección/TrashNate/Data/archive/dataset-resized \
               --img-size 96 --head-epochs 1 --finetune-epochs 1 --finetune-layers 5 \
               --out-dir runs/ci-smoke
 
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision evaluate.py --run-dir runs/ci-smoke
 
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision export_tflite.py --run-dir runs/ci-smoke
   ci-ok:

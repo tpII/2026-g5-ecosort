@@ -49,3 +49,22 @@
 - Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.
 - Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.
 - Continuar con la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.
+
+## [2026-09-23] - Semana 3
+
+### Avances del proyecto
+
+- **Modelo entrenado y desplegado en la Raspberry Pi real**: transfer learning sobre **MobileNetV2** (ADR 0001), entrenado en Google Colab sobre el dataset TrashNet (6 clases). Exportado a TFLite int8, medido en la Pi 3: **31ms de latencia** (vs. 81ms en fp32, sin pérdida de precisión por la cuantización) y **~79% de accuracy** en el test set — todavía sin la clase orgánico, que TrashNet no tiene.
+- **Runtime completo de la Raspberry Pi armado y documentado** (rama `Mica`, mergeada a `main` como PR #1): captura por cámara USB, inferencia TFLite, conteo de residuos por diferencia de fondo (un evento por objeto, se recalibra solo), publicación MQTT (Mosquitto, con reconexión y estado online/offline), y un dashboard propio (SQLite + panel web con conteo en vivo, descarga CSV y reinicio). Todo documentado en una guía de instalación paso a paso (`docs/guia-instalacion-raspberry.md`), con los problemas reales de la puesta en marcha y sus soluciones.
+- **Reordenamos y unificamos el código de entrenamiento** en una sola carpeta (`vision/`), que antes estaba repartido en dos pipelines distintos sin conexión entre sí (uno en Colab con MobileNetV2, otro local con MobileNetV3Small). Quedó **MobileNetV2 224px como backbone por defecto** — el mismo que ya corre en la Pi — y MobileNetV3Small como alternativa, para compararlos en igualdad de condiciones (mismo split, mismas épocas) antes de decidir cuál va a producción definitiva.
+  - Se eliminó el prototipo viejo (`software_detección/TrashNate/main.py`), una CNN entrenada desde cero que contradecía la ADR 0001.
+  - El notebook de Colab se simplificó a un envoltorio delgado que llama al código versionado en `vision/`, en vez de reimplementar el entrenamiento adentro.
+  - Se mantuvo y ordenó la infraestructura reproducible que ya existía (Docker, CI con smoke test, matriz de confusión) para que corra igual con cualquier backbone.
+- **Repartimos las áreas del equipo** para lo que sigue: Micaela queda a cargo del modelo (datos propios, mapeo de clases, entrenamiento), Francisco de backend y comunicación (MQTT, adaptador, schema, CI, dashboard backend), y David de firmware (servos/GPIO, todavía bloqueado por hardware que llega en unas semanas) y el frontend del dashboard.
+
+### Pendiente para Semana 4
+
+- Juntar fotos propias (50–100 por clase, incluyendo orgánico) y reentrenar — es la mejora de precisión más importante que queda pendiente.
+- Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto: qué hacer con `metal`, que no tiene compuerta asignada.
+- Comparar MobileNetV2 contra MobileNetV3Small en igualdad de condiciones y decidir con datos (accuracy, tamaño, latencia real en la Pi) cuál queda como backbone definitivo.
+- Separar `dashboard.py` (hoy todo en un archivo) en backend (API) y frontend, y congelar el contrato de datos MQTT entre las 3 áreas para poder desarrollar en paralelo sin pisarse.

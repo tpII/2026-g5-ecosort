@@ -14,11 +14,12 @@ import tensorflow as tf
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confusion_matrix
 
 from dataset import build_manifest, make_dataset, split_manifest
+import models  # noqa: F401 — registra Clip255 para que load_model la encuentre
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", default="runs/mobilenetv3small")
+    parser.add_argument("--run-dir", default="runs/mobilenetv2")
     parser.add_argument("--model-name", default="final.keras",
                          help="final.keras (último) o best.keras (mejor val_accuracy)")
     parser.add_argument("--batch-size", type=int, default=32)
