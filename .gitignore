@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 
 CLAUDE.md
+docs/2026-g5-ecosort.code-workspace
 
 # vision — artefactos de entrenamiento (modelos, checkpoints, .tflite)
 vision/runs/
