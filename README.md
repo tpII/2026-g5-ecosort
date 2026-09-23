@@ -9,8 +9,9 @@ monitoreo.
 
 > **Estado del repositorio:** fin de Semana 3 — pipeline funcionando de
 > punta a punta: modelo (`vision/`, MobileNetV2 desplegado) → Raspberry Pi
-> (`raspberry/`, captura + inferencia + MQTT + dashboard) → guía de
-> instalación. Roles del equipo repartidos por área (ver tabla de Equipo).
+> (`raspberry/`, captura + inferencia + MQTT) → host cliente/servidor
+> (`host/`, adapter + dashboard, procesos separados). Roles del equipo
+> repartidos por área (ver tabla de Equipo).
 
 ---
 
@@ -109,11 +110,18 @@ o local/Docker — ver [`vision/README.md`](vision/README.md).
 
 ## Raspberry Pi — [`raspberry/`](raspberry/)
 
-Runtime desplegado: captura por cámara USB, inferencia TFLite, conteo de
-objetos por diferencia de fondo, publicación MQTT (Mosquitto) y un
-dashboard propio (SQLite + panel web) que se suscribe a esos eventos. Guía
-completa de puesta en marcha:
+Lo que corre **en la Pi**: captura por cámara USB, inferencia TFLite,
+conteo de objetos por diferencia de fondo y publicación MQTT (Mosquitto).
+Ya no incluye el dashboard — ver la sección siguiente. Guía completa de
+puesta en marcha:
 [`docs/guia-instalacion-raspberry.md`](docs/guia-instalacion-raspberry.md).
+
+## Host cliente/servidor — [`host/`](host/)
+
+Lo que corre **fuera de la Pi**, en la misma LAN: el adapter (MQTT → SQLite,
+único INSERT real, ADR 0003) y el dashboard (backend + frontend, lee esa
+misma base). Dos procesos independientes, no un monolito — ver
+[`host/README.md`](host/README.md) para el porqué y cómo correrlos.
 
 ---
 
@@ -143,7 +151,8 @@ completa de puesta en marcha:
 │   │   ├── 0002-plataforma-4-compuertas-collar.md
 │   │   ├── 0003-mqtt-sqlite-como-contrato.md
 │   │   ├── 0004-grafana-vs-dashboard-propio.md
-│   │   └── 0005-dashboard-propio-reemplaza-grafana.md
+│   │   ├── 0005-dashboard-propio-reemplaza-grafana.md
+│   │   └── 0006-systemd-vs-docker-en-la-pi.md
 │   ├── circuito-de-alimentacion/
 │   │   └── Circuito de alimentación.pdf
 │   ├── diagramas/
@@ -159,10 +168,15 @@ completa de puesta en marcha:
 │   ├── notebooks/entrenar_colab.ipynb       # entrena en Colab, llama a estos scripts
 │   ├── models.py, train.py, evaluate.py, export_tflite.py, webcam_test.py
 │   └── Dockerfile, docker-compose.yml       # entrenar/evaluar/exportar reproducible
-├── raspberry/                                # runtime desplegado en la Pi
+├── raspberry/                                # corre EN la Pi
 │   ├── modelo/                              # ecosort_int8.tflite, ecosort_fp32.tflite, labels.txt
-│   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, dashboard.py, vista_en_vivo.py
+│   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, vista_en_vivo.py
 │   └── mosquitto/ecosort.conf
+├── host/                                     # corre en el host cliente/servidor, no en la Pi
+│   ├── adapter/adapter.py                   # MQTT -> SQLite, único INSERT real
+│   └── dashboard/
+│       ├── backend/backend.py               # lee SQLite, sirve la API + el panel
+│       └── frontend/index.html
 └── schema/eventos.sql
 ```
 
@@ -182,14 +196,16 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 | [0003](docs/adr/0003-mqtt-sqlite-como-contrato.md) | Transporte MQTT + Mosquitto; persistencia SQLite vía adaptador propio | Aceptado |
 | [0004](docs/adr/0004-grafana-vs-dashboard-propio.md) | Grafana (+ Prometheus/node_exporter opcional) en vez de dashboard propio | Rechazada — reemplazada por ADR 0005 |
 | [0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md) | Dashboard propio (Front End) leyendo SQLite + Prometheus, en vez de Grafana — a pedido del docente | Aceptado |
+| [0006](docs/adr/0006-systemd-vs-docker-en-la-pi.md) | Servicios en la Pi (Mosquitto, inferencia, node_exporter) corren con systemd, no Docker | Aceptado |
 
 ---
 
 ## Avances (Semana 3)
 
-- [x] Mergeado el runtime completo de la Raspberry Pi (`raspberry/`): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard propio — funcionando de punta a punta contra la Pi real.
+- [x] Mergeado el runtime completo de la Raspberry Pi (rama `Mica`, integración de prueba): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard — funcionando de punta a punta contra la Pi real.
 - [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
 - [x] Unificados los dos pipelines de entrenamiento en `vision/`, con MobileNetV2 como backbone por defecto y MobileNetV3Small como alternativa a comparar.
+- [x] Separado el dashboard en procesos independientes (`host/adapter/` + `host/dashboard/`), sacándolo de la Pi — la integración anterior corría todo por `localhost`, sin que MQTT cruzara red de verdad. ADR 0006 (systemd en la Pi) documentada.
 - [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
 
 ## Pendiente para Semana 4
@@ -197,7 +213,9 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 - [ ] Fotos propias del gabinete (con la clase orgánico) para reentrenar — la mejora de precisión más importante pendiente.
 - [ ] Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto.
 - [ ] Firmware: control de los 4 servos por GPIO (bloqueado por hardware, llega en unas semanas).
-- [ ] Separar `dashboard.py` en backend (API) y frontend, y congelar el contrato de datos MQTT entre las 3 áreas.
+- [ ] Decidir si `host/` (adapter + dashboard) se compose con Docker — candidato a ADR 0007, ver `host/README.md`.
+- [ ] Congelar el contrato de datos MQTT (versión de schema, mapeo de clases) entre las 3 áreas.
+- [ ] Unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006).
 
 Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
 

@@ -1,27 +1,36 @@
 # EcoSort — Guía de instalación en la Raspberry Pi
 
 Guía paso a paso para dejar funcionando, en una Raspberry Pi 3, la detección de residuos con
-cámara, la comunicación por MQTT (Mosquitto) y el dashboard web. Incluye los problemas que
-aparecieron durante la puesta en marcha y cómo se resolvieron.
+cámara y la comunicación por MQTT (Mosquitto). El adapter y el dashboard **no corren acá** —
+van en el host cliente/servidor, ver `host/README.md`. Incluye los problemas que aparecieron
+durante la puesta en marcha y cómo se resolvieron.
 
 ## Arquitectura
 
 ```
-Cámara USB → ecosort_pi.py ──MQTT (Mosquitto)──→ dashboard.py → eventos.db (SQLite)
-             detecta y cuenta                     guarda y sirve el panel web
+Raspberry Pi                                    Host cliente/servidor
+──────────────                                  ──────────────────────
+Cámara USB → ecosort_pi.py ──MQTT (Mosquitto)──→ host/adapter/     → eventos.db (SQLite)
+             detecta y cuenta                    host/dashboard/   → lee esa misma base, sirve el panel web
 ```
+
+Antes había un `raspberry/dashboard.py` que hacía de adapter y de dashboard
+a la vez, corriendo en la propia Pi — era una prueba de integración para
+validar que las piezas encajaban (con MQTT viajando por `localhost`, sin
+cruzar red). Esa separación real ahora vive en `host/`, ver su `README.md`.
 
 | Archivo | Qué hace |
 |---|---|
 | `raspberry/ecosort_pi.py` | Lee la cámara, detecta cuándo aparece un objeto, lo clasifica y publica **un evento por objeto** por MQTT. Con `--video` también transmite el video. |
 | `raspberry/inferencia_pi.py` | Carga el modelo TFLite y clasifica una imagen. También sirve para medir rendimiento (`--bench`). |
-| `raspberry/ecosort_mqtt.py` | Publica por MQTT: eventos, estado en vivo y estado online/offline. |
-| `raspberry/dashboard.py` | Se suscribe a MQTT, guarda en SQLite y sirve el panel web (conteo, vivo, CSV, reinicio). |
+| `raspberry/ecosort_mqtt.py` | Publica por MQTT (desde la Pi): eventos, estado en vivo y estado online/offline. |
 | `raspberry/vista_en_vivo.py` | Herramienta de prueba: video en el navegador con indicador de nitidez para enfocar. |
 | `raspberry/mosquitto/ecosort.conf` | Configuración del broker Mosquitto. |
+| `host/adapter/` | Se suscribe a MQTT y guarda en SQLite — corre en el host, no en la Pi. |
+| `host/dashboard/` | Lee esa misma base y sirve el panel web (conteo, vivo, CSV, reinicio) — corre en el host. |
 | `vision/notebooks/entrenar_colab.ipynb` | Notebook de Google Colab que entrena el modelo y lo exporta a TFLite. |
 | `vision/` | Código de entrenamiento versionado (el notebook lo llama, no reimplementa nada) — ver `vision/README.md`. |
-| `schema/eventos.sql` | Estructura de la tabla de eventos. |
+| `schema/eventos.sql` | Estructura de la tabla de eventos (fuente canónica, la leen `host/adapter/` y `host/dashboard/backend/`). |
 
 Tópicos MQTT (`<id>` = `ecosort-01`):
 
@@ -247,17 +256,32 @@ Cortar con `Ctrl + C` antes de seguir: la cámara la puede usar un solo programa
 
 ---
 
-## 10. Sistema completo: detector + dashboard
+## 10. Sistema completo: detector (Pi) + adapter/dashboard (host)
+
+El detector corre **en la Pi**, por SSH. El adapter y el dashboard corren
+**en el host cliente/servidor** (tu propia notebook, no por SSH) — ver
+`host/README.md` para el detalle de esos dos procesos.
+
+**En la Pi**, por SSH:
 
 ```bash
 cd ~/ecosort
 source ~/ecosort-venv/bin/activate
-nohup python dashboard.py > dashboard.log 2>&1 &
 nohup python ecosort_pi.py --modelo modelo/ecosort_int8.tflite --video > detector.log 2>&1 &
 ```
 
+**En tu notebook** (directo, sin SSH — necesitás `paho-mqtt` instalado ahí,
+ver `host/README.md`):
+
+```bash
+export ECOSORT_BROKER=<ip-de-la-pi>
+python host/adapter/adapter.py &
+python host/dashboard/backend/backend.py &
+```
+
 Durante los primeros 2 segundos la cámara tiene que ver la escena **vacía** (aprende el fondo).
-Después, abrir en la notebook **`http://<ip-de-la-pi>:8080`**:
+Después, abrir **`http://localhost:8080`** en tu notebook (no en la IP de la Pi — el dashboard
+corre en tu máquina):
 
 - **En vivo:** residuo que ve la cámara, confianza y video.
 - **Residuos detectados:** total y conteo por tipo.
@@ -265,20 +289,19 @@ Después, abrir en la notebook **`http://<ip-de-la-pi>:8080`**:
 - **Descargar datos (CSV):** todos los registros, listo para Excel.
 - **Reiniciar datos:** borra los registros (pide confirmación).
 
-Los datos quedan en `~/ecosort/eventos.db` y sobreviven a reinicios. `nohup` hace que los
-programas sigan corriendo aunque se cierre la sesión SSH.
+Los datos quedan en `eventos.db`, en la carpeta desde donde corriste `adapter.py`/`backend.py`
+(las dos deben apuntar al mismo archivo — `ECOSORT_DB` si no es la carpeta actual), y sobreviven
+a reinicios.
 
 ```bash
-pkill -f ecosort_pi.py        # detener el detector
-pkill -f dashboard.py         # detener el dashboard
-cat detector.log              # ver mensajes / errores
+pkill -f ecosort_pi.py        # en la Pi: detener el detector
+pkill -f adapter.py           # en el host: detener el adapter
+pkill -f backend.py           # en el host: detener el dashboard
+cat detector.log              # en la Pi: ver mensajes / errores
 ```
 
 Ajustes en `ecosort_pi.py`: `UMBRAL_CONF` (confianza mínima para contar, 0,60) y
 `UMBRAL_CAMBIO` (cuánto tiene que cambiar la imagen para considerar que hay un objeto).
-
-El dashboard puede correr en otra computadora apuntando a la Pi:
-`ECOSORT_BROKER=<ip-de-la-pi> python dashboard.py`.
 
 ---
 
@@ -307,5 +330,5 @@ El dashboard puede correr en otra computadora apuntando a la Pi:
   del gabinete (50–100 por clase) y reentrenar con el mismo notebook.
 - **Faltan las 4 clases finales** (plástico, papel, vidrio, orgánico): TrashNet no tiene orgánico.
   Se resuelve con el dataset propio.
-- **Pendiente:** control de los servos por GPIO, modo Access Point (`192.168.20.1`), y mover el
-  dashboard a la notebook/servidor según la arquitectura del proyecto.
+- **Pendiente:** control de los servos por GPIO, y pasar la red de la Pi a modo Access Point
+  real (`192.168.20.1`) — hoy se prueba en la misma red que ya tiene internet.

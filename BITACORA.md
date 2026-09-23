@@ -61,10 +61,12 @@
   - El notebook de Colab se simplificó a un envoltorio delgado que llama al código versionado en `vision/`, en vez de reimplementar el entrenamiento adentro.
   - Se mantuvo y ordenó la infraestructura reproducible que ya existía (Docker, CI con smoke test, matriz de confusión) para que corra igual con cualquier backbone.
 - **Repartimos las áreas del equipo** para lo que sigue: Micaela queda a cargo del modelo (datos propios, mapeo de clases, entrenamiento), Francisco de backend y comunicación (MQTT, adaptador, schema, CI, dashboard backend), y David de firmware (servos/GPIO, todavía bloqueado por hardware que llega en unas semanas) y el frontend del dashboard.
+- **Separamos `raspberry/` de `host/`**: lo que se había mergeado como integración de prueba corría todo en la Pi por `localhost` (ni MQTT cruzaba red de verdad). Ahora `raspberry/` tiene solo lo que corre en la Pi (captura, inferencia, publicación MQTT), y `host/adapter/` (MQTT→SQLite, único INSERT, ADR 0003) + `host/dashboard/` (backend + frontend, procesos separados entre sí) corren en el host cliente/servidor — la topología real que ya mostraba el diagrama de arquitectura. De paso, el schema SQLite dejó de estar duplicado inline (había divergido de `schema/eventos.sql`, le faltaba un índice). Documentada la decisión de systemd sin Docker en la Pi (ADR 0006).
 
 ### Pendiente para Semana 4
 
 - Juntar fotos propias (50–100 por clase, incluyendo orgánico) y reentrenar — es la mejora de precisión más importante que queda pendiente.
 - Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto: qué hacer con `metal`, que no tiene compuerta asignada.
 - Comparar MobileNetV2 contra MobileNetV3Small en igualdad de condiciones y decidir con datos (accuracy, tamaño, latencia real en la Pi) cuál queda como backbone definitivo.
-- Separar `dashboard.py` (hoy todo en un archivo) en backend (API) y frontend, y congelar el contrato de datos MQTT entre las 3 áreas para poder desarrollar en paralelo sin pisarse.
+- Decidir si `host/` se compose con Docker (candidato a ADR 0007) y armar las unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006).
+- Congelar el contrato de datos MQTT (versión de schema, mapeo de clases) entre las 3 áreas para poder desarrollar en paralelo sin pisarse.
