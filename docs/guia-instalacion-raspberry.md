@@ -270,14 +270,15 @@ source ~/ecosort-venv/bin/activate
 nohup python ecosort_pi.py --modelo modelo/ecosort_int8.tflite --video > detector.log 2>&1 &
 ```
 
-**En tu notebook** (directo, sin SSH — necesitás `paho-mqtt` instalado ahí,
-ver `host/README.md`):
+**En tu notebook** (directo, sin SSH — con Docker instalado, ver `host/README.md`):
 
 ```bash
-export ECOSORT_BROKER=<ip-de-la-pi>
-python host/adapter/adapter.py &
-python host/dashboard/backend/backend.py &
+cd host
+ECOSORT_BROKER=<ip-de-la-pi> docker compose up -d --build
 ```
+
+Levanta el adapter y el dashboard como dos contenedores (podés encenderlos antes que la Pi: reintentan
+solos hasta que el broker aparece). Sin Docker, `host/README.md` explica cómo correr los scripts directo.
 
 Durante los primeros 2 segundos la cámara tiene que ver la escena **vacía** (aprende el fondo).
 Después, abrir **`http://localhost:8080`** en tu notebook (no en la IP de la Pi — el dashboard
@@ -289,15 +290,14 @@ corre en tu máquina):
 - **Descargar datos (CSV):** todos los registros, listo para Excel.
 - **Reiniciar datos:** borra los registros (pide confirmación).
 
-Los datos quedan en `eventos.db`, en la carpeta desde donde corriste `adapter.py`/`backend.py`
-(las dos deben apuntar al mismo archivo — `ECOSORT_DB` si no es la carpeta actual), y sobreviven
-a reinicios.
+Los datos quedan en un volumen de Docker (`eventos-data`) y sobreviven a reinicios y a `docker compose
+down`; solo `docker compose down -v` los borra. Para sacarlos, el botón *Descargar datos (CSV)*.
 
 ```bash
 pkill -f ecosort_pi.py        # en la Pi: detener el detector
-pkill -f adapter.py           # en el host: detener el adapter
-pkill -f backend.py           # en el host: detener el dashboard
 cat detector.log              # en la Pi: ver mensajes / errores
+docker compose logs -f        # en el host (carpeta host/): ver adapter y dashboard
+docker compose down           # en el host: detener adapter y dashboard (los datos quedan)
 ```
 
 Ajustes en `ecosort_pi.py`: `UMBRAL_CONF` (confianza mínima para contar, 0,60) y

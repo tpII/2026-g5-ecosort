@@ -152,7 +152,8 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   │   ├── 0003-mqtt-sqlite-como-contrato.md
 │   │   ├── 0004-grafana-vs-dashboard-propio.md
 │   │   ├── 0005-dashboard-propio-reemplaza-grafana.md
-│   │   └── 0006-systemd-vs-docker-en-la-pi.md
+│   │   ├── 0006-systemd-vs-docker-en-la-pi.md
+│   │   └── 0007-docker-compose-en-el-host.md
 │   ├── circuito-de-alimentacion/
 │   │   └── Circuito de alimentación.pdf
 │   ├── diagramas/
@@ -173,6 +174,7 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, vista_en_vivo.py
 │   └── mosquitto/ecosort.conf
 ├── host/                                     # corre en el host cliente/servidor, no en la Pi
+│   ├── docker-compose.yml                   # adapter + dashboard (+ docker-compose.dev.yml: broker local)
 │   ├── adapter/adapter.py                   # MQTT -> SQLite, único INSERT real
 │   └── dashboard/
 │       ├── backend/backend.py               # lee SQLite, sirve la API + el panel
@@ -197,6 +199,7 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 | [0004](docs/adr/0004-grafana-vs-dashboard-propio.md) | Grafana (+ Prometheus/node_exporter opcional) en vez de dashboard propio | Rechazada — reemplazada por ADR 0005 |
 | [0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md) | Dashboard propio (Front End) leyendo SQLite + Prometheus, en vez de Grafana — a pedido del docente | Aceptado |
 | [0006](docs/adr/0006-systemd-vs-docker-en-la-pi.md) | Servicios en la Pi (Mosquitto, inferencia, node_exporter) corren con systemd, no Docker | Aceptado |
+| [0007](docs/adr/0007-docker-compose-en-el-host.md) | Servicios del host (adapter, dashboard, luego Prometheus) se despliegan con Docker Compose | Aceptado |
 
 ---
 
@@ -205,7 +208,7 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 - [x] Mergeado el runtime completo de la Raspberry Pi (rama `Mica`, integración de prueba): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard — funcionando de punta a punta contra la Pi real.
 - [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
 - [x] Unificados los dos pipelines de entrenamiento en `vision/`, con MobileNetV2 como backbone por defecto y MobileNetV3Small como alternativa a comparar.
-- [x] Separado el dashboard en procesos independientes (`host/adapter/` + `host/dashboard/`), sacándolo de la Pi — la integración anterior corría todo por `localhost`, sin que MQTT cruzara red de verdad. ADR 0006 (systemd en la Pi) documentada.
+- [x] Separado el dashboard en procesos independientes (`host/adapter/` + `host/dashboard/`), sacándolo de la Pi — la integración anterior corría todo por `localhost`, sin que MQTT cruzara red de verdad. ADR 0006 (systemd en la Pi) y ADR 0007 (Docker Compose en el host) documentadas, y `host/` ya se levanta con `docker compose up`.
 - [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
 
 ## Pendiente para Semana 4
@@ -213,7 +216,6 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 - [ ] Fotos propias del gabinete (con la clase orgánico) para reentrenar — la mejora de precisión más importante pendiente.
 - [ ] Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto.
 - [ ] Firmware: control de los 4 servos por GPIO (bloqueado por hardware, llega en unas semanas).
-- [ ] Decidir si `host/` (adapter + dashboard) se compose con Docker — candidato a ADR 0007, ver `host/README.md`.
 - [ ] Congelar el contrato de datos MQTT (versión de schema, mapeo de clases) entre las 3 áreas.
 - [ ] Unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006).
 
