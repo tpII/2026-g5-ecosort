@@ -1,5 +1,8 @@
 # 2026-g5-ecosort — EcoSort
 
+![EcoSort — Clasificador de Residuos Inteligente](docs/banner.png)
+
+
 **Taller de Proyecto II 2026 — Grupo G5**
 
 Clasificador automático de residuos en 4 categorías (plástico, papel, vidrio,
