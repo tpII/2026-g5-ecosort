@@ -1,0 +1,48 @@
+# Lado host del sistema (ADR 0007): adapter MQTT->SQLite + dashboard.
+# El broker Mosquitto NO va acá: corre en la Pi (ADR 0003 / 0006). Para probar sin
+# Pi, sumar docker-compose.dev.yml (trae un broker local).
+#
+#   docker compose up -d --build                        # contra la Pi (192.168.20.1)
+#   ECOSORT_BROKER=<ip-de-la-pi> docker compose up -d   # otra IP
+#   docker compose logs -f
+#
+# eventos.db vive en un volumen NOMBRADO, no en un bind mount: SQLite en modo WAL
+# necesita memoria compartida entre procesos y falla sobre algunos sistemas de archivos
+
+name: ecosort-host
+
+services:
+  adapter:
+    build:
+      context: ./adapter
+      additional_contexts:
+        schema: ../schema
+    restart: unless-stopped
+    environment:
+      ECOSORT_BROKER: ${ECOSORT_BROKER:-192.168.20.1}
+    volumes:
+      - eventos-data:/data
+
+  dashboard:
+    build:
+      context: ./dashboard
+      additional_contexts:
+        schema: ../schema
+    restart: unless-stopped
+    environment:
+      ECOSORT_BROKER: ${ECOSORT_BROKER:-192.168.20.1}
+      # el video lo sirve la Pi (ecosort_pi.py --video), no este host
+      ECOSORT_VIDEO: ${ECOSORT_VIDEO:-http://192.168.20.1:8000/stream}
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - eventos-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/resumen', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  eventos-data:

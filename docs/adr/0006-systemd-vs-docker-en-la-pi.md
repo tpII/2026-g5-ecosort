@@ -25,8 +25,8 @@ hace, de fábrica), `ecosort_pi.py` (unit file nueva), y `node_exporter`
 cuando se sume (se distribuye como binario estático + una unit mínima, el
 caso de libro para no containerizar). El dashboard y el adapter, al correr
 en `host/` y no en la Pi, quedan fuera del alcance de esta ADR — ver
-`host/README.md` (ahí Docker sí es candidato, por motivos opuestos a los de
-acá; decisión todavía sin cerrar).
+[ADR 0007](0007-docker-compose-en-el-host.md) (ahí se decidió Docker Compose,
+por motivos opuestos a los de acá).
 
 Se descarta Docker en la Pi por dos motivos, no por rechazo general a
 contenedores (`vision/` los sigue usando donde sí tienen sentido):

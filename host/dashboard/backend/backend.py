@@ -29,8 +29,12 @@ PUERTO = int(os.getenv("ECOSORT_PUERTO", "8080"))
 DB_PATH = os.getenv("ECOSORT_DB", "eventos.db")
 VIDEO_URL = os.getenv("ECOSORT_VIDEO", "")  # vacío = http://<mismo host>:8000/stream
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "schema" / "eventos.sql"
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+# ECOSORT_SCHEMA / ECOSORT_FRONTEND: en la imagen Docker no existe el layout del repo
+# (ver host/dashboard/Dockerfile); corriendo el script directo se resuelven solos.
+SCHEMA_PATH = Path(os.getenv(
+    "ECOSORT_SCHEMA", Path(__file__).resolve().parent.parent.parent.parent / "schema" / "eventos.sql"))
+FRONTEND_DIR = Path(os.getenv(
+    "ECOSORT_FRONTEND", Path(__file__).resolve().parent.parent / "frontend"))
 
 COLUMNAS = ["id", "evento_id", "dispositivo_id", "clase", "confianza", "compuerta",
             "latencia_ms", "modelo", "ts_dispositivo", "ts_recepcion"]
@@ -108,6 +112,7 @@ def iniciar_mqtt():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ecosort-dashboard",
                          clean_session=False)   # si el panel se reinicia, no pierde eventos
     client.on_connect = on_connect
+    client.on_connect_fail = lambda c, u: print(f"[dashboard] no pude conectar al broker {BROKER}, reintento...")
     client.on_message = on_message
     client.reconnect_delay_set(min_delay=1, max_delay=30)
     client.connect_async(BROKER, 1883, keepalive=30)

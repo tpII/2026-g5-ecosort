@@ -2,19 +2,24 @@
 
 Todo lo que corre en el "host cliente/servidor" del diagrama de
 arquitectura (`192.168.20.2` en el README raíz), **no en la Raspberry Pi**.
-Dos procesos independientes que no se conocen entre sí — solo comparten el
-broker MQTT y el archivo `eventos.db` (ADR 0003):
+Dos servicios independientes que no se conocen entre sí — solo comparten el
+broker MQTT y el archivo `eventos.db` (ADR 0003), desplegados con Docker
+Compose ([ADR 0007](../docs/adr/0007-docker-compose-en-el-host.md)):
 
 ```
 host/
-├── adapter/            # MQTT -> SQLite, el único INSERT real
+├── docker-compose.yml        # adapter + dashboard (el broker está en la Pi)
+├── docker-compose.dev.yml    # override: suma un broker local para trabajar sin Pi
+├── adapter/                  # MQTT -> SQLite, el único INSERT real
 │   ├── adapter.py
+│   ├── Dockerfile
 │   └── requirements.txt
 └── dashboard/
-    ├── backend/         # lee SQLite (+ MQTT para vivo/estado), sirve la API + el panel
+    ├── Dockerfile
+    ├── backend/               # lee SQLite (+ MQTT para vivo/estado), sirve la API + el panel
     │   ├── backend.py
     │   └── requirements.txt
-    └── frontend/        # HTML/CSS/JS estáticos
+    └── frontend/              # HTML/CSS/JS estáticos
         └── index.html
 ```
 
@@ -23,6 +28,57 @@ todo esto en un solo proceso — era una prueba de integración para validar
 que las piezas encajaban, corriendo entero en la Pi por `localhost` (con lo
 cual MQTT ni siquiera cruzaba la red). Esta carpeta es la separación real,
 en la topología que ya mostraba el diagrama de arquitectura del README.
+
+## Uso con Docker Compose
+
+```bash
+cd host
+
+# contra la Pi (192.168.20.1 por defecto)
+docker compose up -d --build
+ECOSORT_BROKER=<otra-ip> docker compose up -d      # si la red es otra
+
+docker compose logs -f          # ver qué hacen adapter y dashboard
+docker compose down             # frena todo; los datos quedan (volumen eventos-data)
+docker compose down -v          # ...y BORRA los datos
+```
+
+Abrir `http://localhost:8080` (o `DASHBOARD_PORT=9090 docker compose up -d`
+para otro puerto). Variables: `ECOSORT_BROKER` (IP de la Pi), `ECOSORT_VIDEO`
+(por defecto `http://192.168.20.1:8000/stream`, el video lo sirve la Pi, no
+este host).
+
+**Sin la Pi** (para trabajar en el dashboard, el adapter o el contrato):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+pip install paho-mqtt && python ../raspberry/ecosort_mqtt.py   # eventos falsos → localhost:1883
+```
+
+El override suma un Mosquitto local con la misma conf que usa la Pi, y monta
+`dashboard/frontend/` para que editar `index.html` y refrescar el navegador
+alcance, sin rebuild.
+
+`eventos.db` vive en un volumen nombrado y no en una carpeta tuya: SQLite en
+modo WAL no es confiable sobre carpetas montadas desde el host en Docker
+Desktop (Windows/Mac). Para sacar los datos, el botón *Descargar datos (CSV)*
+del dashboard.
+
+## Sin Docker (para depurar)
+
+```bash
+pip install -r adapter/requirements.txt -r dashboard/backend/requirements.txt
+
+export ECOSORT_BROKER=192.168.20.1
+export ECOSORT_DB=eventos.db          # mismo archivo para ambos procesos
+export ECOSORT_VIDEO=http://192.168.20.1:8000/stream
+
+python adapter/adapter.py &
+python dashboard/backend/backend.py &
+```
+
+Abrir `http://<ip-de-este-host>:8080`. `ECOSORT_PUERTO` cambia el puerto
+del panel (default `8080`).
 
 ## Por qué dos procesos y no uno
 
@@ -40,34 +96,30 @@ en la topología que ya mostraba el diagrama de arquitectura del README.
 - El schema lo leen los dos de `schema/eventos.sql` (la fuente canónica, no
   una copia embebida) — antes `dashboard.py` tenía su propia copia inline
   que ya había divergido (le faltaba un índice).
+- **Toleran que la Pi no esté**: si el host arranca antes que ella, los dos
+  reintentan la conexión MQTT solos (lo avisan en el log) y se conectan
+  cuando aparece, sin caerse.
 
-## Uso
+## Pruebas
 
 ```bash
-cd host/adapter && pip install -r requirements.txt
-cd host/dashboard/backend && pip install -r requirements.txt
-
-# variables de entorno (mismas para los dos, ECOSORT_BROKER es la IP de la Pi en la AP)
-export ECOSORT_BROKER=192.168.20.1
-export ECOSORT_DB=eventos.db          # mismo archivo para ambos procesos
-export ECOSORT_VIDEO=http://192.168.20.1:8000/stream   # opcional, video de vista_en_vivo.py/ecosort_pi.py --video
-
-python host/adapter/adapter.py &
-python host/dashboard/backend/backend.py &
+bash host/tests/e2e_smoke.sh      # necesita Docker; ~30 s
 ```
 
-Abrir `http://<ip-de-este-host>:8080`. `ECOSORT_PUERTO` cambia el puerto
-del panel (default `8080`).
+Levanta broker local + adapter + dashboard (proyecto de Compose y puertos
+propios, no pisa un stack de desarrollo que tengas levantado) y verifica:
+que el adapter **sobrevive sin broker y reintenta**, que adapter y dashboard se
+conectan solos cuando el broker aparece, que un evento con el formato real
+llega hasta `/api/resumen`, y que un `evento_id` repetido no se cuenta dos
+veces. Lo mismo corre en CI (`.github/workflows/ci.yml`, job `host`), **solo
+cuando el PR toca `host/**`**.
 
 ## Pendiente
 
-- **systemd o Docker para este lado**: a diferencia de la Pi (ver
-  [ADR 0006](../docs/adr/0006-systemd-vs-docker-en-la-pi.md), sin Docker
-  por el acceso a hardware), acá no hay cámara ni GPIO de por medio y el
-  host puede ser cualquier notebook del equipo — candidato real a
-  `docker-compose.yml` (adapter + backend + Prometheus). Discusión abierta,
-  candidata a ADR 0007.
+- Prometheus como tercer servicio del compose, cuando exista `node_exporter`
+  en la Pi (ADR 0005) — hoy `/api/resumen` solo devuelve el dato de negocio.
 - `dashboard/backend/` sigue sirviendo con `http.server` puro, no Flask —
   la ADR 0005 dejó el framework como "a definir".
-- Falta el segundo datasource (Prometheus, scrapeando `node_exporter` de la
-  Pi) — hoy `resumen()`/`/api/resumen` solo devuelve el dato de negocio.
+- El job de CI mira solo `host/**`: un cambio en `schema/eventos.sql` (que las
+  dos imágenes copian) o en `raspberry/mosquitto/ecosort.conf` (que usa el
+  override de desarrollo) no lo dispara.

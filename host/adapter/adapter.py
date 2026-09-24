@@ -24,7 +24,9 @@ import paho.mqtt.client as mqtt
 
 BROKER = os.getenv("ECOSORT_BROKER", "localhost")
 DB_PATH = os.getenv("ECOSORT_DB", "eventos.db")
-SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "schema" / "eventos.sql"
+# ECOSORT_SCHEMA: en la imagen Docker no existe el layout del repo (ver host/adapter/Dockerfile)
+SCHEMA_PATH = Path(os.getenv(
+    "ECOSORT_SCHEMA", Path(__file__).resolve().parent.parent.parent / "schema" / "eventos.sql"))
 
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
 db.execute("PRAGMA journal_mode=WAL")
@@ -69,6 +71,10 @@ def on_connect(client, userdata, flags, reason_code, properties):
     client.subscribe("ecosort/+/eventos", qos=1)
 
 
+def on_connect_fail(client, userdata):
+    print(f"[adapter] no pude conectar al broker {BROKER}, reintento...")
+
+
 def on_message(client, userdata, msg):
     partes = msg.topic.split("/")
     if len(partes) != 3:
@@ -86,12 +92,15 @@ def main():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ecosort-adapter",
                          clean_session=False)  # si se reinicia, no pierde eventos ya publicados
     client.on_connect = on_connect
+    client.on_connect_fail = on_connect_fail
     client.on_message = on_message
     client.reconnect_delay_set(min_delay=1, max_delay=30)
     client.connect_async(BROKER, 1883, keepalive=30)
     print(f"[adapter] escuchando ecosort/+/eventos, escribiendo en {DB_PATH}  (Ctrl+C para cortar)")
     try:
-        client.loop_forever()
+        # retry_first_connection: sin esto, si el broker no está al arrancar (el host prende
+        # antes que la Pi) loop_forever() levanta la excepción y el proceso muere.
+        client.loop_forever(retry_first_connection=True)
     except KeyboardInterrupt:
         client.disconnect()
 
