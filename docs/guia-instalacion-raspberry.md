@@ -1,33 +1,44 @@
 # EcoSort — Guía de instalación en la Raspberry Pi
 
 Guía paso a paso para dejar funcionando, en una Raspberry Pi 3, la detección de residuos con
-cámara, la comunicación por MQTT (Mosquitto) y el dashboard web. Incluye los problemas que
-aparecieron durante la puesta en marcha y cómo se resolvieron.
+cámara y la comunicación por MQTT (Mosquitto). El adapter y el dashboard **no corren acá** —
+van en el host cliente/servidor, ver `host/README.md`. Incluye los problemas que aparecieron
+durante la puesta en marcha y cómo se resolvieron.
 
 ## Arquitectura
 
 ```
-Cámara USB → ecosort_pi.py ──MQTT (Mosquitto)──→ dashboard.py → eventos.db (SQLite)
-             detecta y cuenta                     guarda y sirve el panel web
+Raspberry Pi                                    Host cliente/servidor
+──────────────                                  ──────────────────────
+Cámara USB → ecosort_pi.py ──MQTT (Mosquitto)──→ host/adapter/     → eventos.db (SQLite)
+             detecta y cuenta                    host/dashboard/   → lee esa misma base, sirve el panel web
 ```
+
+Antes había un `raspberry/dashboard.py` que hacía de adapter y de dashboard
+a la vez, corriendo en la propia Pi — era una prueba de integración para
+validar que las piezas encajaban (con MQTT viajando por `localhost`, sin
+cruzar red). Esa separación real ahora vive en `host/`, ver su `README.md`.
 
 | Archivo | Qué hace |
 |---|---|
-| `raspberry/ecosort_pi.py` | Lee la cámara, detecta cuándo aparece un objeto, lo clasifica y publica **un evento por objeto** por MQTT. Con `--video` también transmite el video. |
+| `raspberry/ecosort_pi.py` | Lee la cámara, decide cuándo analizar un objeto (con `deteccion.py`), lo clasifica y publica **un evento por objeto aceptado** por MQTT. Con `--video` también transmite el video. |
+| `raspberry/deteccion.py` | Máquina de estados que decide **cuándo y si** analizar: exige que el objeto quede quieto y tenga tamaño de residuo, y descarta lo que el modelo ve como `ninguno` (una mano, una cara). Ver `docs/adr/0009-deteccion-en-cascada-y-rechazo.md`. |
+| `raspberry/clases.py` | Traduce lo que devuelve el modelo a la clase de producto y a su compuerta (lee `schema/clases.json`). |
 | `raspberry/inferencia_pi.py` | Carga el modelo TFLite y clasifica una imagen. También sirve para medir rendimiento (`--bench`). |
-| `raspberry/ecosort_mqtt.py` | Publica por MQTT: eventos, estado en vivo y estado online/offline. |
-| `raspberry/dashboard.py` | Se suscribe a MQTT, guarda en SQLite y sirve el panel web (conteo, vivo, CSV, reinicio). |
+| `raspberry/ecosort_mqtt.py` | Publica por MQTT (desde la Pi): eventos, estado en vivo y estado online/offline. |
 | `raspberry/vista_en_vivo.py` | Herramienta de prueba: video en el navegador con indicador de nitidez para enfocar. |
 | `raspberry/mosquitto/ecosort.conf` | Configuración del broker Mosquitto. |
+| `host/adapter/` | Se suscribe a MQTT y guarda en SQLite — corre en el host, no en la Pi. |
+| `host/dashboard/` | Lee esa misma base y sirve el panel web (conteo, vivo, CSV, reinicio) — corre en el host. |
 | `vision/notebooks/entrenar_colab.ipynb` | Notebook de Google Colab que entrena el modelo y lo exporta a TFLite. |
 | `vision/` | Código de entrenamiento versionado (el notebook lo llama, no reimplementa nada) — ver `vision/README.md`. |
-| `schema/eventos.sql` | Estructura de la tabla de eventos. |
+| `schema/` | El contrato de eventos: `evento.schema.json` (payload, lo valida `host/adapter/`), `clases.json` (clases y compuertas, lo lee la Pi) y `eventos.sql` (tabla). Ver `docs/contrato-mqtt.md`. |
 
 Tópicos MQTT (`<id>` = `ecosort-01`):
 
 | Tópico | Contenido | QoS |
 |---|---|---|
-| `ecosort/<id>/eventos` | Un JSON por residuo contado (clase, confianza, hora, etc.) | 1 |
+| `ecosort/<id>/eventos` | Un JSON por residuo contado (formato y campos: `docs/contrato-mqtt.md`) | 1 |
 | `ecosort/<id>/vivo` | Lo que ve la cámara ahora, ~3 veces por segundo | 0 |
 | `ecosort/<id>/estado` | `online` / `offline` (retenido, con Last Will) | 1 |
 
@@ -204,9 +215,14 @@ Desde el `cmd`, parado en la carpeta del repo:
 
 ```cmd
 scp -r raspberry <usuario>@<ip-de-la-pi>:~/ecosort
+scp -r schema <usuario>@<ip-de-la-pi>:~/ecosort
 ```
 
 Queda todo en `~/ecosort` en la Pi (si esa carpeta ya existía, se crea `~/ecosort/raspberry`).
+**El orden importa:** `raspberry` primero, `schema` después — si `~/ecosort` todavía no existe, el primer
+`scp` la crea con lo que copia. La Pi necesita `schema/clases.json` junto a los scripts (o en la carpeta
+de al lado): con eso traduce las etiquetas del modelo a la clase de producto y a la compuerta. Sin ese
+archivo, `ecosort_pi.py` no arranca y dice qué falta.
 
 ---
 
@@ -247,17 +263,33 @@ Cortar con `Ctrl + C` antes de seguir: la cámara la puede usar un solo programa
 
 ---
 
-## 10. Sistema completo: detector + dashboard
+## 10. Sistema completo: detector (Pi) + adapter/dashboard (host)
+
+El detector corre **en la Pi**, por SSH. El adapter y el dashboard corren
+**en el host cliente/servidor** (tu propia notebook, no por SSH) — ver
+`host/README.md` para el detalle de esos dos procesos.
+
+**En la Pi**, por SSH:
 
 ```bash
 cd ~/ecosort
 source ~/ecosort-venv/bin/activate
-nohup python dashboard.py > dashboard.log 2>&1 &
 nohup python ecosort_pi.py --modelo modelo/ecosort_int8.tflite --video > detector.log 2>&1 &
 ```
 
+**En tu notebook** (directo, sin SSH — con Docker instalado, ver `host/README.md`):
+
+```bash
+cd host
+ECOSORT_BROKER=<ip-de-la-pi> docker compose up -d --build
+```
+
+Levanta el adapter y el dashboard como dos contenedores (podés encenderlos antes que la Pi: reintentan
+solos hasta que el broker aparece). Sin Docker, `host/README.md` explica cómo correr los scripts directo.
+
 Durante los primeros 2 segundos la cámara tiene que ver la escena **vacía** (aprende el fondo).
-Después, abrir en la notebook **`http://<ip-de-la-pi>:8080`**:
+Después, abrir **`http://localhost:8080`** en tu notebook (no en la IP de la Pi — el dashboard
+corre en tu máquina):
 
 - **En vivo:** residuo que ve la cámara, confianza y video.
 - **Residuos detectados:** total y conteo por tipo.
@@ -265,20 +297,21 @@ Después, abrir en la notebook **`http://<ip-de-la-pi>:8080`**:
 - **Descargar datos (CSV):** todos los registros, listo para Excel.
 - **Reiniciar datos:** borra los registros (pide confirmación).
 
-Los datos quedan en `~/ecosort/eventos.db` y sobreviven a reinicios. `nohup` hace que los
-programas sigan corriendo aunque se cierre la sesión SSH.
+Los datos quedan en un volumen de Docker (`eventos-data`) y sobreviven a reinicios y a `docker compose
+down`; solo `docker compose down -v` los borra. Para sacarlos, el botón *Descargar datos (CSV)*.
 
 ```bash
-pkill -f ecosort_pi.py        # detener el detector
-pkill -f dashboard.py         # detener el dashboard
-cat detector.log              # ver mensajes / errores
+pkill -f ecosort_pi.py        # en la Pi: detener el detector
+cat detector.log              # en la Pi: ver mensajes / errores
+docker compose logs -f        # en el host (carpeta host/): ver adapter y dashboard
+docker compose down           # en el host: detener adapter y dashboard (los datos quedan)
 ```
 
-Ajustes en `ecosort_pi.py`: `UMBRAL_CONF` (confianza mínima para contar, 0,60) y
-`UMBRAL_CAMBIO` (cuánto tiene que cambiar la imagen para considerar que hay un objeto).
-
-El dashboard puede correr en otra computadora apuntando a la Pi:
-`ECOSORT_BROKER=<ip-de-la-pi> python dashboard.py`.
+Ajustes: los umbrales de la detección están en `Parametros` de `raspberry/deteccion.py`
+(`umbral_cambio`, `frames_quietud`, `area_max`, `umbral_conf`, `umbral_descarte`...) y se usan desde
+`PARAMETROS` en `ecosort_pi.py`. Son valores iniciales **sin calibrar** con la cámara del gabinete.
+Con `--video` el texto de arriba de la imagen muestra qué está haciendo ("analizando...", la clase
+aceptada, o "no reconocido" con el motivo).
 
 ---
 
@@ -307,5 +340,6 @@ El dashboard puede correr en otra computadora apuntando a la Pi:
   del gabinete (50–100 por clase) y reentrenar con el mismo notebook.
 - **Faltan las 4 clases finales** (plástico, papel, vidrio, orgánico): TrashNet no tiene orgánico.
   Se resuelve con el dataset propio.
-- **Pendiente:** control de los servos por GPIO, modo Access Point (`192.168.20.1`), y mover el
-  dashboard a la notebook/servidor según la arquitectura del proyecto.
+- **Pendiente:** control de las 5 salidas por GPIO (LEDs en octubre, servos en noviembre; el contrato ya
+  las prevé, ver `docs/adr/0008-contrato-de-eventos.md`), y pasar la red de la Pi a modo Access Point
+  real (`192.168.20.1`) — hoy se prueba en la misma red que ya tiene internet.

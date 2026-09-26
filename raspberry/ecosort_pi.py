@@ -1,18 +1,23 @@
-"""EcoSort en la Raspberry Pi: cámara + clasificación + conteo por objeto + MQTT.
+"""EcoSort en la Raspberry Pi: cámara + detección + clasificación + MQTT.
 
     python ecosort_pi.py --modelo ecosort_int8.tflite           # detecta, cuenta y publica
     python ecosort_pi.py --modelo ecosort_int8.tflite --video   # además video en http://<pi>:8000
 
 IMPORTANTE: al arrancar, la cámara tiene que ver la escena VACÍA unos 2 segundos.
-Ahí aprende cómo es el fondo; después cuenta UN evento por cada objeto que aparece,
-y no vuelve a contar hasta que el objeto se retira.
+Ahí aprende cómo es el fondo.
+
+Cuándo se analiza un objeto lo decide raspberry/deteccion.py (ADR 0009): hace falta que lo que
+apareció quede quieto ~1 s y tenga un tamaño de residuo; recién ahí se clasifican los cuadros más
+nítidos y se decide por el promedio. Una mano que pasa, una cara o un animal no llegan al modelo, o
+si llegan el modelo los descarta con la clase "ninguno". Se cuenta UN evento por objeto aceptado, y
+no vuelve a analizar nada hasta que la plataforma queda libre.
 
 Tópicos MQTT que publica:
-    ecosort/<id>/vivo     -> lo que ve ahora, ~3 veces por segundo (QoS 0)
-    ecosort/<id>/eventos  -> un mensaje por residuo contado (QoS 1)
+    ecosort/<id>/vivo     -> estado de la detección, ~3 veces por segundo (QoS 0)
+    ecosort/<id>/eventos  -> un mensaje por residuo aceptado (QoS 1), ver docs/contrato-mqtt.md
 
-Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, labels.txt
-(y vista_en_vivo.py si se usa --video).
+Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, clases.py, deteccion.py,
+labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py si se usa --video.
 """
 
 import argparse
@@ -22,16 +27,14 @@ import time
 import cv2
 import numpy as np
 
+from clases import DESCARTES
+from deteccion import Cuadro, Deteccion, Estado, Parametros, fraccion_distinta
 from ecosort_mqtt import EcoSortMQTT
 from inferencia_pi import Clasificador
 
-UMBRAL_CONF = 0.60      # confianza mínima para contar un residuo
-FRAMES_ESTABLE = 3      # cuadros seguidos con la misma clase para confirmarlo
-UMBRAL_CAMBIO = 0.03    # fracción de la imagen que tiene que cambiar para decir "hay algo"
-FRAMES_PRESENTE = 3     # cuadros seguidos con cambio para marcar que llegó un objeto
-FRAMES_AUSENTE = 8      # cuadros seguidos sin cambio para darlo por retirado
-MAX_PRESENTE_S = 30     # si "hay algo" más de esto, se asume que cambió el fondo y se recalibra
-DIF_PIXEL = 30          # diferencia de gris (0-255) para considerar que un píxel cambió
+PARAMETROS = Parametros()   # umbrales de la detección (raspberry/deteccion.py): sin calibrar con la cámara real
+DIF_PIXEL = 30              # diferencia de gris (0-255) para considerar que un píxel cambió respecto del fondo
+DIF_MOV = 20                # ... respecto del cuadro anterior: eso es movimiento
 
 
 class Fondo:
@@ -45,11 +48,14 @@ class Fondo:
         g = cv2.cvtColor(cv2.resize(frame, (160, 120)), cv2.COLOR_BGR2GRAY)
         return cv2.GaussianBlur(g, (5, 5), 0).astype(np.float32)
 
+    def mascara(self, g):
+        return np.abs(g - self.ref) > DIF_PIXEL
+
     def medir(self, frame):
         g = self._gris(frame)
         if self.ref is None:
             self.ref = g.copy()
-        return float((np.abs(g - self.ref) > DIF_PIXEL).mean()), g
+        return float(self.mascara(g).mean()), g
 
     def aprender(self, g, velocidad=0.05):
         # Actualiza el fondo de a poco (cambios lentos de luz). Solo sin objeto en escena.
@@ -91,13 +97,26 @@ class Detector:
                 self.fondo.aprender(g, 0.3)
         print("Listo. Esperando residuos (Ctrl+C para cortar).")
 
+    def _nitidez(self, frame, g):
+        """Nitidez (varianza del Laplaciano) de la zona que cambió, a resolución completa. Solo sirve
+        para ordenar los cuadros de un mismo objeto entre sí y quedarse con los más nítidos."""
+        ys, xs = np.where(self.fondo.mascara(g))
+        if len(ys) == 0:
+            return 0.0
+        fy, fx = frame.shape[0] / g.shape[0], frame.shape[1] / g.shape[1]
+        zona = frame[int(ys.min() * fy):int((ys.max() + 1) * fy),
+                     int(xs.min() * fx):int((xs.max() + 1) * fx)]
+        if zona.size == 0:
+            return 0.0
+        return float(cv2.Laplacian(cv2.cvtColor(zona, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
+
     def correr(self):
         self.calibrar()
-        presente = contado = False
-        con_cambio = sin_cambio = 0
-        historial = []
-        desde = ultimo_vivo = 0.0
+        maquina = Deteccion(self.clf.etiquetas, descartes=DESCARTES, params=PARAMETROS)
+        g_prev = None
+        ultimo_vivo = 0.0
         total = 0
+        ultima = None   # última decisión: se muestra mientras se espera que la plataforma se libere
 
         while True:
             t0 = time.monotonic()
@@ -107,61 +126,75 @@ class Detector:
                 continue
             original = frame.copy()
 
-            # 1) ¿Hay un objeto en escena?
+            # 1) Qué cambió en la escena (barato: imagen chica) y, mientras algo se asienta, qué tan nítido
             cambio, g = self.fondo.medir(frame)
-            if cambio > UMBRAL_CAMBIO:
-                con_cambio, sin_cambio = con_cambio + 1, 0
-            else:
-                con_cambio, sin_cambio = 0, sin_cambio + 1
+            cambio_prev = fraccion_distinta(g, g_prev, DIF_MOV) if g_prev is not None else 0.0
+            g_prev = g
+            nitidez = self._nitidez(frame, g) if maquina.estado is Estado.ASENTANDO else 0.0
 
-            if not presente and con_cambio >= FRAMES_PRESENTE:
-                presente, contado, historial, desde = True, False, [], t0
-            elif presente and sin_cambio >= FRAMES_AUSENTE:
-                presente = False
-            elif presente and t0 - desde > MAX_PRESENTE_S:
-                print("Mucho tiempo con algo en escena: se toma como fondo nuevo.")
-                self.fondo.reiniciar(g)
-                presente = False
-            if not presente:
+            # 2) La máquina decide. El modelo solo corre si pasó la quietud y la plausibilidad.
+            tiempos = []
+
+            def clasificar(f):
+                probs, ms = self.clf.probabilidades(f)
+                tiempos.append(ms)
+                return probs
+
+            r = maquina.paso(Cuadro(cambio, cambio_prev, nitidez, frame), clasificar)
+            if maquina.puede_aprender_fondo:
                 self.fondo.aprender(g)
 
-            # 2) Si hay objeto, clasificar y contarlo UNA vez cuando la clase se estabiliza
-            clase = conf = None
-            if presente:
-                clase, conf, ms = self.clf.predecir(frame)
-                historial.append((clase if conf >= UMBRAL_CONF else None, conf))
-                ult = historial[-FRAMES_ESTABLE:]
-                if (not contado and len(ult) == FRAMES_ESTABLE and ult[0][0] is not None
-                        and all(c == ult[0][0] for c, _ in ult)):
-                    conf_media = sum(p for _, p in ult) / len(ult)
-                    self.pub.publicar_evento(ult[0][0], conf_media, compuerta=None,
-                                             latencia_ms=round(ms, 1), modelo=self.modelo)
-                    contado = True
+            d = r.decision
+            if d is not None:
+                ultima = d
+                if d.tipo == "aceptado":
+                    self.pub.publicar_evento(d.etiqueta, d.confianza,
+                                             latencia_ms=round(sum(tiempos) / len(tiempos), 1),
+                                             modelo=self.modelo)
                     total += 1
-                    print(f"[{total}] contado: {ult[0][0]} ({conf_media:.0%})")
+                    print(f"[{total}] contado: {d.etiqueta} ({d.confianza:.0%})")
+                else:
+                    visto = f" (el modelo vio {d.etiqueta}, {d.confianza:.0%})" if d.etiqueta else ""
+                    print(f"[{d.tipo}] {d.motivo}{visto}")
+            for nombre, dato in r.senales:
+                if nombre == "no_retirado":
+                    # Además de avisar (acá se engancharía una alarma), se sigue como antes: si algo
+                    # queda ~30 s se asume que cambió el fondo y se recalibra.
+                    print(f"[no_retirado] la plataforma sigue ocupada tras '{dato}': se toma como fondo nuevo.")
+                    self.fondo.reiniciar(g)
+                    maquina.reiniciar()
+            if maquina.estado is Estado.LIBRE:
+                ultima = None
 
             # 3) Estado en vivo para el dashboard (~3 por segundo)
+            aceptada = ultima is not None and ultima.tipo == "aceptado"
             if t0 - ultimo_vivo >= 0.33:
                 self.pub.publicar_vivo({
-                    "presente": presente,
-                    "clase": clase,
-                    "confianza": round(conf, 4) if conf is not None else None,
-                    "contado": contado,
+                    "presente": maquina.estado is not Estado.LIBRE,
+                    "estado": maquina.estado.value,
+                    "clase": ultima.etiqueta if aceptada else None,
+                    "confianza": round(ultima.confianza, 4) if aceptada else None,
+                    "contado": aceptada,
+                    "motivo": ultima.motivo if ultima is not None else None,
                 })
                 ultimo_vivo = t0
 
             if self.video:
-                self._video(frame, original, presente, clase, conf, contado)
+                if aceptada:
+                    texto = f"{ultima.etiqueta} {ultima.confianza:.0%}  [contado]"
+                elif ultima is not None:
+                    texto = f"no reconocido ({ultima.motivo})"
+                elif maquina.estado is Estado.ASENTANDO:
+                    texto = "analizando..."
+                else:
+                    texto = "esperando residuo..."
+                self._video(frame, original, texto)
 
             espera = self.periodo - (time.monotonic() - t0)
             if espera > 0:
                 time.sleep(espera)
 
-    def _video(self, frame, original, presente, clase, conf, contado):
-        if presente and clase:
-            texto = f"{clase} {conf:.0%}" + ("  [contado]" if contado else "")
-        else:
-            texto = "esperando residuo..."
+    def _video(self, frame, original, texto):
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), (0, 0, 0), -1)
         cv2.putText(frame, texto, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (80, 255, 80), 2)
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])

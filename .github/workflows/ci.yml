@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       vision: ${{ steps.filter.outputs.vision }}
+      host: ${{ steps.filter.outputs.host }}
+      contrato: ${{ steps.filter.outputs.contrato }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -18,6 +20,14 @@ jobs:
           filters: |
             vision:
               - 'vision/**'
+            host:
+              - 'host/**'
+            contrato:
+              - 'schema/**'
+              - 'raspberry/**'
+              - 'host/adapter/**'
+              - 'host/dashboard/frontend/**'
+              - 'vision/classes.py'
 
   vision:
     needs: changes
@@ -52,8 +62,51 @@ jobs:
             -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision export_tflite.py --run-dir runs/ci-smoke
+
+  host:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: lint_check
+        run: python3 -m py_compile host/adapter/adapter.py host/dashboard/backend/backend.py
+
+      - name: compose_config
+        run: |
+          docker compose -f host/docker-compose.yml config -q
+          docker compose -f host/docker-compose.yml -f host/docker-compose.dev.yml config -q
+
+      # build de las imágenes + broker local + adapter + dashboard, sin Pi (ver el script)
+      - name: smoke_test
+        run: bash host/tests/e2e_smoke.sh
+
+  # el contrato de eventos (ADR 0008) y la detección (ADR 0009) cruzan schema/, raspberry/, host/adapter y
+  # vision/classes.py: corre si cambia cualquiera de esas piezas, no solo host/
+  contrato:
+    needs: changes
+    if: needs.changes.outputs.contrato == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install
+        run: pip install paho-mqtt jsonschema numpy
+
+      - name: tests_de_contrato
+        run: python -m unittest discover -s schema/tests -v
+
+      # la máquina de estados que decide cuándo y si analizar (ADR 0009): sin cámara ni modelo
+      - name: tests_de_deteccion
+        run: python -m unittest discover -s raspberry/tests -v
+
   ci-ok:
-    needs: [vision]
+    needs: [vision, host, contrato]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -61,6 +114,14 @@ jobs:
         run: |
           if [ "${{ needs.vision.result }}" = "failure" ]; then
             echo "vision falló"
+            exit 1
+          fi
+          if [ "${{ needs.host.result }}" = "failure" ]; then
+            echo "host falló"
+            exit 1
+          fi
+          if [ "${{ needs.contrato.result }}" = "failure" ]; then
+            echo "contrato falló"
             exit 1
           fi
           echo "ok"
