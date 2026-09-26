@@ -14,3 +14,6 @@ vision/runs/
 !raspberry/modelo/*.tflite
 eventos.db
 *.log
+
+# salida local de check_entrega.py
+entregas-chequeo/
