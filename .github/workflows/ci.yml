@@ -105,8 +105,42 @@ jobs:
       - name: tests_de_deteccion
         run: python -m unittest discover -s raspberry/tests -v
 
+  # formato de las entregas (docs/entregas/*.pdf): solo en ramas entrega_*. Usa la skill formato-entregas del
+  # ref repo de la cátedra
+  entrega:
+    if: startsWith(github.head_ref || github.ref_name, 'entrega_')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ref main porque quiero la latest, asumo que el profe y/o claudio no lo romperán pq son re cracks
+      - name: guias_de_la_catedra
+        uses: actions/checkout@v4
+        with:
+          repository: tpII/ia-guidelines-taller
+          ref: main
+          path: .guias
+
+      - name: instalar_poppler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: tests_del_chequeo
+        run: python3 -m unittest discover -s .github/scripts/formato-entregas -v
+
+      - name: chequear_formato
+        run: >
+          python3 .github/scripts/formato-entregas/check_entrega.py
+          --analizador .guias/skills/formato-entregas/scripts/analizar_pdf.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chequeo-formato
+          path: entregas-chequeo/
+          if-no-files-found: ignore
+
   ci-ok:
-    needs: [vision, host, contrato]
+    needs: [vision, host, contrato, entrega]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -122,6 +156,10 @@ jobs:
           fi
           if [ "${{ needs.contrato.result }}" = "failure" ]; then
             echo "contrato falló"
+            exit 1
+          fi
+          if [ "${{ needs.entrega.result }}" = "failure" ]; then
+            echo "el formato de la entrega no cumple (ver el resumen del job entrega)"
             exit 1
           fi
           echo "ok"
