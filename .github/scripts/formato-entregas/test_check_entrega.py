@@ -72,6 +72,45 @@ class Evaluar(unittest.TestCase):
         self.assertEqual(check_entrega.evaluar(d), ([], []))
 
 
+def git(cwd, *args):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
+                   capture_output=True)
+
+
+class PdfsCambiados(unittest.TestCase):
+    """Con un repo real: la promoción main -> entrega_N solo chequea los PDFs de la entrega nueva."""
+
+    def test_solo_los_pdfs_que_cambian_respecto_de_la_base(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "docs", "entregas"))
+
+            def escribir(ruta, texto):
+                with open(os.path.join(tmp, ruta), "w") as fh:
+                    fh.write(texto)
+
+            git(tmp, "init", "-q", "-b", "main")
+            escribir("docs/entregas/entrega1.pdf", "1")           # la entrega anterior
+            git(tmp, "add", "-A")
+            git(tmp, "commit", "-q", "-m", "entrega 1")
+            git(tmp, "branch", "entrega_2")                        # la base de la promoción
+            escribir("docs/entregas/entrega2.pdf", "2")           # nuevo
+            escribir("docs/entregas/entrega1.pdf", "1 corregido")  # modificado
+            escribir("docs/entregas/README.md", "no es un pdf")
+            escribir("otro.pdf", "fuera de la carpeta")
+            git(tmp, "add", "-A")
+            git(tmp, "commit", "-q", "-m", "docs")
+
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                cambiados = check_entrega.pdfs_cambiados("entrega_2")
+                sin_cambios = check_entrega.pdfs_cambiados("main")
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(cambiados, ["docs/entregas/entrega1.pdf", "docs/entregas/entrega2.pdf"])
+        self.assertEqual(sin_cambios, [])
+
+
 class SinPdfs(unittest.TestCase):
     def test_sin_pdfs_sale_con_0(self):
         with tempfile.TemporaryDirectory() as tmp:

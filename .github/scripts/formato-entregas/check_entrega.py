@@ -9,8 +9,10 @@ PDF y decide:
 - **Avisa** (queda en el informe, no falla) lo que puede dar falsos positivos con PDFs de Google Docs o Word:
   justificado, carátula, índices, bibliografía, epígrafes y lenguaje.
 
-Uso:  check_entrega.py [pdf ...] [--analizador RUTA] [--salida DIR]
-Sin PDFs como argumento, busca docs/entregas/*.pdf. Si no hay ninguno, avisa y sale con 0.
+Uso:  check_entrega.py [pdf ...] [--base RAMA] [--analizador RUTA] [--salida DIR]
+Qué PDFs mira, en este orden: los que se pasan como argumento; si no, con --base, los de docs/entregas/ que
+cambian respecto de esa rama (son los de la entrega que se está promoviendo); si no, todos los de
+docs/entregas/*.pdf. Si no hay ninguno, avisa y sale con 0.
 """
 import argparse
 import glob
@@ -55,6 +57,15 @@ def evaluar(d):
     return errores, avisos
 
 
+def pdfs_cambiados(base, carpeta="docs/entregas"):
+    """PDFs de `carpeta` nuevos, modificados o renombrados en HEAD respecto de la rama `base`."""
+    r = subprocess.run(["git", "diff", "--name-only", "--diff-filter=AMR", base, "HEAD", "--", carpeta],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"git diff contra {base} falló:\n{r.stderr}")
+    return sorted(x for x in r.stdout.splitlines() if x.lower().endswith(".pdf"))
+
+
 def correr(analizador, pdf, extra=()):
     r = subprocess.run([sys.executable, analizador, pdf, *extra], capture_output=True, text=True)
     if r.returncode != 0:
@@ -87,12 +98,20 @@ def main():
     ap.add_argument("pdf", nargs="*")
     ap.add_argument("--analizador", default=os.environ.get("ANALIZAR_PDF"),
                     help="ruta a skills/formato-entregas/scripts/analizar_pdf.py del repo de la cátedra")
+    ap.add_argument("--base", help="rama contra la que se compara (por ejemplo origin/entrega_2): "
+                    "solo se chequean los PDFs de docs/entregas/ que cambian respecto de ella")
     ap.add_argument("--salida", default="entregas-chequeo")
     args = ap.parse_args()
 
-    pdfs = args.pdf or sorted(glob.glob("docs/entregas/*.pdf"))
+    if args.pdf:
+        pdfs = args.pdf
+    elif args.base:
+        pdfs = pdfs_cambiados(args.base)
+    else:
+        pdfs = sorted(glob.glob("docs/entregas/*.pdf"))
     if not pdfs:
-        print("No hay PDFs en docs/entregas/: no hay nada que chequear.")
+        print("No hay PDFs para chequear en docs/entregas/" + (f" respecto de {args.base}" if args.base else "")
+              + ": nada que chequear.")
         return 0
 
     if not args.analizador or not os.path.isfile(args.analizador):

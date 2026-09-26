@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, 'entrega_*']
+    branches: [main]
 
 jobs:
   changes:
@@ -105,15 +105,29 @@ jobs:
       - name: tests_de_deteccion
         run: python -m unittest discover -s raspberry/tests -v
 
-  # formato de las entregas (docs/entregas/*.pdf): solo en PRs hacia una rama entrega_* (y en los pushes a ella).
+  # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
+  # formato de los PDFs de docs/entregas/ que cambian respecto de la rama destino (los de esa entrega).
   # Usa la skill formato-entregas del repo de la cátedra, que se trae con un checkout (no se copia acá). Falla por
   # fuente, tamaño e interlineado; el resto queda como aviso en el resumen del job.
   entrega:
-    # en un PR, base_ref es la rama destino; en un push, base_ref viene vacío y vale ref_name
-    if: startsWith(github.base_ref || github.ref_name, 'entrega_')
+    if: startsWith(github.base_ref, 'entrega_')
     runs-on: ubuntu-latest
     steps:
+      - name: origen_main
+        env:
+          ORIGEN: ${{ github.head_ref }}
+          DESTINO: ${{ github.base_ref }}
+          REPO_ORIGEN: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$ORIGEN" != "main" ] || [ "$REPO_ORIGEN" != "${{ github.repository }}" ]; then
+            echo "::error::A $DESTINO solo se llega con un PR desde main de este repo (origen: $REPO_ORIGEN:$ORIGEN)."
+            exit 1
+          fi
+
+      # historia completa: hace falta para comparar contra la rama destino
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ref main porque quiero la latest, asumo que el profe y/o claudio no lo romperán pq son re cracks
       - name: guias_de_la_catedra
@@ -133,6 +147,7 @@ jobs:
         run: >
           python3 .github/scripts/formato-entregas/check_entrega.py
           --analizador .guias/skills/formato-entregas/scripts/analizar_pdf.py
+          --base origin/${{ github.base_ref }}
 
       - uses: actions/upload-artifact@v4
         if: always()
