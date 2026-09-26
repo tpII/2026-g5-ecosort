@@ -70,7 +70,7 @@ button,.boton{border:0;border-radius:8px;padding:10px 16px;font-size:14px;cursor
 const VIDEO_URL = __VIDEO_URL__ || `http://${location.hostname}:8000/stream`;
 const NOMBRES = {cardboard:"Cartón", glass:"Vidrio", metal:"Metal", paper:"Papel", plastic:"Plástico",
   trash:"Basura", plastico:"Plástico", papel:"Papel", vidrio:"Vidrio", organico:"Orgánico"};
-const BASE = ["plastic","paper","cardboard","glass","metal","trash"];
+const BASE = ["plastico","papel","vidrio","organico","metal"];   // clases de producto (schema/clases.json)
 const nombre = c => NOMBRES[c] || c;
 const pct = x => x == null ? "—" : Math.round(x * 100) + "%";
 const hora = ts => ts ? new Date(ts).toLocaleTimeString("es-AR") : "";

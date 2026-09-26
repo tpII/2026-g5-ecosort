@@ -153,7 +153,9 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   │   ├── 0004-grafana-vs-dashboard-propio.md
 │   │   ├── 0005-dashboard-propio-reemplaza-grafana.md
 │   │   ├── 0006-systemd-vs-docker-en-la-pi.md
-│   │   └── 0007-docker-compose-en-el-host.md
+│   │   ├── 0007-docker-compose-en-el-host.md
+│   │   ├── 0008-contrato-de-eventos.md
+│   │   └── 0009-deteccion-en-cascada-y-rechazo.md
 │   ├── circuito-de-alimentacion/
 │   │   └── Circuito de alimentación.pdf
 │   ├── diagramas/
@@ -172,6 +174,8 @@ misma base). Dos procesos independientes, no un monolito — ver
 ├── raspberry/                                # corre EN la Pi
 │   ├── modelo/                              # ecosort_int8.tflite, ecosort_fp32.tflite, labels.txt
 │   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, vista_en_vivo.py
+│   ├── deteccion.py, clases.py             # cuándo y si analizar (ADR 0009); vocabulario de clases
+│   ├── tests/test_deteccion.py
 │   └── mosquitto/ecosort.conf
 ├── host/                                     # corre en el host cliente/servidor, no en la Pi
 │   ├── docker-compose.yml                   # adapter + dashboard (+ docker-compose.dev.yml: broker local)
@@ -179,13 +183,14 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   └── dashboard/
 │       ├── backend/backend.py               # lee SQLite, sirve la API + el panel
 │       └── frontend/index.html
-└── schema/eventos.sql
+└── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
+    ├── evento.schema.json, clases.json, eventos.sql
+    └── tests/test_contrato.py
 ```
 
-Referenciados en la documentación pero **aún no versionados**:
-`schema/eventos.sql`, el código del dashboard propio (framework a definir,
-ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
-`docs/validacion.md`.
+Referenciado en la documentación pero **aún no versionado**: `docs/validacion.md`
+(la metodología de validación del modelo, entregable de noviembre). El dashboard propio ya existe,
+sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)).
 
 ---
 
@@ -200,6 +205,8 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 | [0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md) | Dashboard propio (Front End) leyendo SQLite + Prometheus, en vez de Grafana — a pedido del docente | Aceptado |
 | [0006](docs/adr/0006-systemd-vs-docker-en-la-pi.md) | Servicios en la Pi (Mosquitto, inferencia, node_exporter) corren con systemd, no Docker | Aceptado |
 | [0007](docs/adr/0007-docker-compose-en-el-host.md) | Servicios del host (adapter, dashboard, luego Prometheus) se despliegan con Docker Compose | Aceptado |
+| [0008](docs/adr/0008-contrato-de-eventos.md) | Contrato de eventos v1: 5 clases de producto y 5 compuertas (metal incluido; LEDs en octubre), validación en el adapter | Propuesto — falta el review de los 3 |
+| [0009](docs/adr/0009-deteccion-en-cascada-y-rechazo.md) | Detección en cascada (quietud, tamaño, modelo) y clase `ninguno` para rechazar lo que no es un residuo (manos, caras, animales) | Propuesto — falta el review de los 3 |
 
 ---
 
@@ -209,14 +216,18 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 - [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
 - [x] Unificados los dos pipelines de entrenamiento en `vision/`, con MobileNetV2 como backbone por defecto y MobileNetV3Small como alternativa a comparar.
 - [x] Separado el dashboard en procesos independientes (`host/adapter/` + `host/dashboard/`), sacándolo de la Pi — la integración anterior corría todo por `localhost`, sin que MQTT cruzara red de verdad. ADR 0006 (systemd en la Pi) y ADR 0007 (Docker Compose en el host) documentadas, y `host/` ya se levanta con `docker compose up`.
+- [x] Contrato de eventos v1 definido y verificado ([`docs/contrato-mqtt.md`](docs/contrato-mqtt.md), ADR 0008): 5 clases y 5 compuertas (el metal se suma; en octubre las salidas se simulan con LEDs), JSON Schema versionado, validación en el adapter con registro de rechazos y tests de contrato en CI.
+- [x] Detección robusta (ADR 0009): una máquina de estados exige que el objeto quede quieto y tenga tamaño de residuo antes de analizarlo, y la nueva clase `ninguno` permite rechazar lo que no es un residuo sin ensuciar los eventos. En una comparación sintética pasó de 4 eventos falsos sobre 6 a 0, y de 285 a 15 inferencias. Umbrales todavía sin calibrar con la cámara real.
 - [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
 
 ## Pendiente para Semana 4
 
-- [ ] Fotos propias del gabinete (con la clase orgánico) para reentrenar — la mejora de precisión más importante pendiente.
-- [ ] Cerrar el mapeo de las 6 clases de TrashNet a las 4 compuertas del producto.
-- [ ] Firmware: control de los 4 servos por GPIO (bloqueado por hardware, llega en unas semanas).
-- [ ] Congelar el contrato de datos MQTT (versión de schema, mapeo de clases) entre las 3 áreas.
+- [ ] Review de los 3 del contrato v1 y de la detección (ADR 0008 y 0009) antes de mergearlos.
+- [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
+- [ ] Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo) midiendo eventos falsos.
+- [ ] Firmware: 5 salidas por GPIO configurables — LEDs en octubre, servos en noviembre (bloqueado por hardware, llega en unas semanas) — y enganchar las señales de la detección a LEDs y sonidos que le den expresión a la papelera (objeto no reconocido, cayó, se trabó).
+- [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
+- [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
 - [ ] Unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006).
 
 Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).

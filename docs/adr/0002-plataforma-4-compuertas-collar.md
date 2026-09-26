@@ -1,6 +1,8 @@
 # ADR 0002 — Mecanismo físico: plataforma de 4 compuertas
 
-**Estado:** Aceptado.
+**Estado:** Aceptado. Ampliada por la [ADR 0008](0008-contrato-de-eventos.md): se suma una quinta
+compuerta, para metal (a cargo del equipo, en noviembre; en octubre las salidas se simulan con LEDs).
+El resto de esta decisión (compuertas fijas, todas cerradas por defecto) sigue vigente.
 
 ## Contexto
 

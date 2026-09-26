@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tpII/2026-g5-ecosort/schema/evento.schema.json",
+  "title": "Evento de clasificación de EcoSort (v1)",
+  "description": "Payload JSON de ecosort/<dispositivo_id>/eventos. Contrato definido en docs/contrato-mqtt.md (ADR 0008). Los consumidores v1 ignoran campos que no conocen (additionalProperties), así que agregar campos opcionales no rompe a nadie; cambiar o quitar un campo requiere schema_version 2.",
+  "type": "object",
+  "required": ["schema_version", "evento_id", "dispositivo_id", "ts", "clase", "clase_modelo", "confianza", "compuerta", "accionado"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evento_id": {
+      "description": "UUID generado en la Pi al contar el residuo. QoS 1 puede duplicar el mensaje: el adapter deduplica por este campo.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "dispositivo_id": {
+      "description": "Debe coincidir con el segmento del tópico. Previsto para N dispositivos (ADR 0003).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "ts": {
+      "description": "Reloj de la Pi, RFC 3339 con zona. La Pi no tiene RTC: puede estar mal. El adapter registra aparte ts_recepcion (reloj del host).",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "clase": {
+      "description": "Clase de producto: define a qué compuerta va. Vocabulario en schema/clases.json.",
+      "enum": ["plastico", "papel", "vidrio", "organico", "metal"]
+    },
+    "clase_modelo": {
+      "description": "Etiqueta cruda que devolvió el modelo (p. ej. 'cardboard'). Se conserva para poder evaluar el modelo aunque cambie el mapeo.",
+      "type": "string",
+      "minLength": 1
+    },
+    "confianza": {
+      "description": "Promedio de la confianza en los frames que confirmaron la clase (no la de un solo frame).",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "compuerta": {
+      "description": "Compuerta asignada a la clase (1 plastico, 2 papel, 3 vidrio, 4 organico, 5 metal).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "accionado": {
+      "description": "true si la salida física de esa compuerta se activó (LED en octubre, servo desde noviembre). Es false mientras no exista el firmware.",
+      "type": "boolean"
+    },
+    "latencia_ms": {
+      "description": "Tiempo de inferencia del último frame, NO captura-a-compuerta.",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "modelo": {
+      "description": "Identificador del modelo que clasificó (hoy la ruta del .tflite).",
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": true
+}

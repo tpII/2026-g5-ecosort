@@ -21,7 +21,9 @@ cruzar red). Esa separación real ahora vive en `host/`, ver su `README.md`.
 
 | Archivo | Qué hace |
 |---|---|
-| `raspberry/ecosort_pi.py` | Lee la cámara, detecta cuándo aparece un objeto, lo clasifica y publica **un evento por objeto** por MQTT. Con `--video` también transmite el video. |
+| `raspberry/ecosort_pi.py` | Lee la cámara, decide cuándo analizar un objeto (con `deteccion.py`), lo clasifica y publica **un evento por objeto aceptado** por MQTT. Con `--video` también transmite el video. |
+| `raspberry/deteccion.py` | Máquina de estados que decide **cuándo y si** analizar: exige que el objeto quede quieto y tenga tamaño de residuo, y descarta lo que el modelo ve como `ninguno` (una mano, una cara). Ver `docs/adr/0009-deteccion-en-cascada-y-rechazo.md`. |
+| `raspberry/clases.py` | Traduce lo que devuelve el modelo a la clase de producto y a su compuerta (lee `schema/clases.json`). |
 | `raspberry/inferencia_pi.py` | Carga el modelo TFLite y clasifica una imagen. También sirve para medir rendimiento (`--bench`). |
 | `raspberry/ecosort_mqtt.py` | Publica por MQTT (desde la Pi): eventos, estado en vivo y estado online/offline. |
 | `raspberry/vista_en_vivo.py` | Herramienta de prueba: video en el navegador con indicador de nitidez para enfocar. |
@@ -30,13 +32,13 @@ cruzar red). Esa separación real ahora vive en `host/`, ver su `README.md`.
 | `host/dashboard/` | Lee esa misma base y sirve el panel web (conteo, vivo, CSV, reinicio) — corre en el host. |
 | `vision/notebooks/entrenar_colab.ipynb` | Notebook de Google Colab que entrena el modelo y lo exporta a TFLite. |
 | `vision/` | Código de entrenamiento versionado (el notebook lo llama, no reimplementa nada) — ver `vision/README.md`. |
-| `schema/eventos.sql` | Estructura de la tabla de eventos (fuente canónica, la leen `host/adapter/` y `host/dashboard/backend/`). |
+| `schema/` | El contrato de eventos: `evento.schema.json` (payload, lo valida `host/adapter/`), `clases.json` (clases y compuertas, lo lee la Pi) y `eventos.sql` (tabla). Ver `docs/contrato-mqtt.md`. |
 
 Tópicos MQTT (`<id>` = `ecosort-01`):
 
 | Tópico | Contenido | QoS |
 |---|---|---|
-| `ecosort/<id>/eventos` | Un JSON por residuo contado (clase, confianza, hora, etc.) | 1 |
+| `ecosort/<id>/eventos` | Un JSON por residuo contado (formato y campos: `docs/contrato-mqtt.md`) | 1 |
 | `ecosort/<id>/vivo` | Lo que ve la cámara ahora, ~3 veces por segundo | 0 |
 | `ecosort/<id>/estado` | `online` / `offline` (retenido, con Last Will) | 1 |
 
@@ -213,9 +215,14 @@ Desde el `cmd`, parado en la carpeta del repo:
 
 ```cmd
 scp -r raspberry <usuario>@<ip-de-la-pi>:~/ecosort
+scp -r schema <usuario>@<ip-de-la-pi>:~/ecosort
 ```
 
 Queda todo en `~/ecosort` en la Pi (si esa carpeta ya existía, se crea `~/ecosort/raspberry`).
+**El orden importa:** `raspberry` primero, `schema` después — si `~/ecosort` todavía no existe, el primer
+`scp` la crea con lo que copia. La Pi necesita `schema/clases.json` junto a los scripts (o en la carpeta
+de al lado): con eso traduce las etiquetas del modelo a la clase de producto y a la compuerta. Sin ese
+archivo, `ecosort_pi.py` no arranca y dice qué falta.
 
 ---
 
@@ -300,8 +307,11 @@ docker compose logs -f        # en el host (carpeta host/): ver adapter y dashbo
 docker compose down           # en el host: detener adapter y dashboard (los datos quedan)
 ```
 
-Ajustes en `ecosort_pi.py`: `UMBRAL_CONF` (confianza mínima para contar, 0,60) y
-`UMBRAL_CAMBIO` (cuánto tiene que cambiar la imagen para considerar que hay un objeto).
+Ajustes: los umbrales de la detección están en `Parametros` de `raspberry/deteccion.py`
+(`umbral_cambio`, `frames_quietud`, `area_max`, `umbral_conf`, `umbral_descarte`...) y se usan desde
+`PARAMETROS` en `ecosort_pi.py`. Son valores iniciales **sin calibrar** con la cámara del gabinete.
+Con `--video` el texto de arriba de la imagen muestra qué está haciendo ("analizando...", la clase
+aceptada, o "no reconocido" con el motivo).
 
 ---
 
@@ -330,5 +340,6 @@ Ajustes en `ecosort_pi.py`: `UMBRAL_CONF` (confianza mínima para contar, 0,60) 
   del gabinete (50–100 por clase) y reentrenar con el mismo notebook.
 - **Faltan las 4 clases finales** (plástico, papel, vidrio, orgánico): TrashNet no tiene orgánico.
   Se resuelve con el dataset propio.
-- **Pendiente:** control de los servos por GPIO, y pasar la red de la Pi a modo Access Point
+- **Pendiente:** control de las 5 salidas por GPIO (LEDs en octubre, servos en noviembre; el contrato ya
+  las prevé, ver `docs/adr/0008-contrato-de-eventos.md`), y pasar la red de la Pi a modo Access Point
   real (`192.168.20.1`) — hoy se prueba en la misma red que ya tiene internet.

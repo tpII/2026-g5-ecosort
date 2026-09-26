@@ -91,14 +91,22 @@ ojo, cuál va a producción.
 
 ## Pendiente / decisiones abiertas
 
-- **Mapeo de clases 6→4** (`classes.py`): el dataset TrashNet trae 6 clases,
-  el producto tiene 4 compuertas. Falta decidir qué hacer con `metal`, que
-  no tiene compuerta — ver el TODO en `classes.py`. Hoy `raspberry/`
-  resuelve esto en runtime (`inferencia_pi.py`/`ecosort_pi.py`), no en el
-  entrenamiento: se entrena con las 6 clases nativas.
-- **Falta la clase orgánico**: TrashNet no la tiene. El dataset final va a
-  necesitar fotos propias del gabinete — ver
-  `docs/guia-instalacion-raspberry.md`, sección "Limitaciones conocidas".
+- **Mapeo de clases** (`classes.py`, copia de `schema/clases.json`, ADR 0008): el dataset
+  TrashNet trae 6 clases y el producto tiene 5 (con `metal` como clase propia y su quinta
+  compuerta). El mapeo lo aplica la Pi en runtime (`raspberry/clases.py`), no el
+  entrenamiento: se entrena con las etiquetas nativas.
+- **Clase `ninguno` (ADR 0009): falta juntar los negativos.** Es la clase que le permite al
+  modelo decir "esto no es un residuo" (una mano, una cara, un animal, la plataforma vacía)
+  en vez de forzar alguna de las otras. Se agrega como una carpeta más del dataset,
+  `data/trashnet/ninguno/*.jpg`, y `train.py` la toma sola (arma las clases a partir de las
+  carpetas). Qué juntar: fotos propias del gabinete con la plataforma vacía, manos, brazos, caras,
+  pelo, sombras, celulares, llaves, y de datasets públicos imágenes de personas y animales.
+  Conviene un tamaño parecido al de las otras clases (~400 a 600) y variedad de luz y fondo.
+  `classes.py` ya la declara en `DESCARTES` y la Pi la reconoce (`schema/clases.json`).
+- **Falta la clase orgánico**: TrashNet no la tiene (`trash` se mapea a `organico`). El
+  dataset final va a necesitar fotos propias del gabinete — ver
+  `docs/guia-instalacion-raspberry.md`, sección "Limitaciones conocidas" — y latas y aluminio
+  para `metal`, que es de las clases más flojas.
 - `data/` y `runs/` no se versionan igual: `data/trashnet/` sí está en git
   (es el dataset base), `runs/` no (son artefactos de una corrida, ver
   `.gitignore`).

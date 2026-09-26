@@ -99,20 +99,34 @@ del panel (default `8080`).
 - **Toleran que la Pi no esté**: si el host arranca antes que ella, los dos
   reintentan la conexión MQTT solos (lo avisan en el log) y se conectan
   cuando aparece, sin caerse.
+- **El adapter hace cumplir el contrato** ([`docs/contrato-mqtt.md`](../docs/contrato-mqtt.md), ADR 0008):
+  valida cada evento contra `schema/evento.schema.json`. Lo que no cumple no se
+  cuenta: queda en la tabla `eventos_rechazados` con el motivo, para diagnosticar un
+  publisher desalineado en vez de perder datos en silencio.
+  `SELECT ts_recepcion, motivo FROM eventos_rechazados ORDER BY id DESC LIMIT 20;`
 
 ## Pruebas
 
 ```bash
-bash host/tests/e2e_smoke.sh      # necesita Docker; ~30 s
+bash host/tests/e2e_smoke.sh      # necesita Docker; ~40 s
 ```
 
 Levanta broker local + adapter + dashboard (proyecto de Compose y puertos
 propios, no pisa un stack de desarrollo que tengas levantado) y verifica:
 que el adapter **sobrevive sin broker y reintenta**, que adapter y dashboard se
-conectan solos cuando el broker aparece, que un evento con el formato real
-llega hasta `/api/resumen`, y que un `evento_id` repetido no se cuenta dos
-veces. Lo mismo corre en CI (`.github/workflows/ci.yml`, job `host`), **solo
-cuando el PR toca `host/**`**.
+conectan solos cuando el broker aparece, que un evento del contrato v1
+llega hasta `/api/resumen`, que un `evento_id` repetido no se cuenta dos
+veces, y que un evento inválido no se cuenta y queda en `eventos_rechazados`. Lo mismo corre en
+CI (`.github/workflows/ci.yml`, job `host`), **solo cuando el PR toca `host/**`**.
+
+Los tests del contrato (sin Docker ni red, segundos) están en `schema/tests` y corren en CI
+(job `contrato`) cuando cambia `schema/`, `raspberry/`, `host/adapter/`, el frontend o
+`vision/classes.py`:
+
+```bash
+pip install paho-mqtt jsonschema
+python -m unittest discover -s schema/tests -v
+```
 
 ## Pendiente
 
@@ -120,6 +134,6 @@ cuando el PR toca `host/**`**.
   en la Pi (ADR 0005) — hoy `/api/resumen` solo devuelve el dato de negocio.
 - `dashboard/backend/` sigue sirviendo con `http.server` puro, no Flask —
   la ADR 0005 dejó el framework como "a definir".
-- El job de CI mira solo `host/**`: un cambio en `schema/eventos.sql` (que las
-  dos imágenes copian) o en `raspberry/mosquitto/ecosort.conf` (que usa el
-  override de desarrollo) no lo dispara.
+- El job de CI de Docker (`host`) mira solo `host/**`: un cambio en `schema/` (que las
+  imágenes copian) o en `raspberry/mosquitto/ecosort.conf` (que usa el
+  override de desarrollo) no lo dispara. Lo de `schema/` sí lo cubre el job `contrato`, que es liviano.
