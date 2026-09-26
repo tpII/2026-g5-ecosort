@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'entrega_*']
 
 jobs:
   changes:
@@ -105,10 +105,12 @@ jobs:
       - name: tests_de_deteccion
         run: python -m unittest discover -s raspberry/tests -v
 
-  # formato de las entregas (docs/entregas/*.pdf): solo en ramas entrega_*. Usa la skill formato-entregas del
-  # ref repo de la cátedra
+  # formato de las entregas (docs/entregas/*.pdf): solo en PRs hacia una rama entrega_* (y en los pushes a ella).
+  # Usa la skill formato-entregas del repo de la cátedra, que se trae con un checkout (no se copia acá). Falla por
+  # fuente, tamaño e interlineado; el resto queda como aviso en el resumen del job.
   entrega:
-    if: startsWith(github.head_ref || github.ref_name, 'entrega_')
+    # en un PR, base_ref es la rama destino; en un push, base_ref viene vacío y vale ref_name
+    if: startsWith(github.base_ref || github.ref_name, 'entrega_')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -4,7 +4,8 @@ Acá van los PDF de cada entrega (informes, planes). Es lo único que chequea el
 
 ## Cómo se chequea
 
-Cuando un PR sale de una rama `entrega_*` (por ejemplo `entrega_2`), el job `entrega` del CI corre
+Cuando se abre un PR **hacia** una rama `entrega_*` (por ejemplo `entrega_2`, la rama donde se junta una entrega),
+el job `entrega` del CI corre
 [`check_entrega.py`](../../.github/scripts/formato-entregas/check_entrega.py) sobre `docs/entregas/*.pdf`. Usa la
 skill `formato-entregas` de la cátedra ([ia-guidelines-taller](https://github.com/tpII/ia-guidelines-taller)), que el
 CI trae con un checkout del repo (fijado a un commit, en `ci.yml`) y no está copiada acá. Mide el **PDF** (no el
