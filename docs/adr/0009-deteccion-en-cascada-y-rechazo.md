@@ -1,6 +1,7 @@
 # ADR 0009 — Detección: cascada (quietud, tamaño, modelo) y rechazo con la clase `ninguno`
 
-**Estado:** Propuesto — a la espera del review de los 3 integrantes (toca `schema/` y el runtime de la Pi).
+**Estado:** Aceptado (26/9/2026) — la clase `ninguno` y la detección en cascada se le mostraron a los 3
+integrantes por el chat del equipo y las aprobaron. Los umbrales siguen sin calibrar (ver abajo).
 
 ## Contexto
 

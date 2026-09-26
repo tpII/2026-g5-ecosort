@@ -1,7 +1,8 @@
 # ADR 0008 — Contrato de eventos v1: clases de producto, 5 compuertas y validación
 
-**Estado:** Propuesto — a la espera del review cruzado de los 3 integrantes (regla para todo lo que
-vive en `schema/`).
+**Estado:** Aceptado (26/9/2026) — las 5 clases y 5 compuertas de `schema/clases.json` se le mostraron a
+los 3 integrantes por el chat del equipo y las aprobaron. Eso cubre el vocabulario y el mapeo del modelo;
+la clase `ninguno` y la detección de la [ADR 0009](0009-deteccion-en-cascada-y-rechazo.md) se revisan aparte.
 
 ## Contexto
 
