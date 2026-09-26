@@ -1,0 +1,19 @@
+{
+  "_doc": "Fuente única del vocabulario de clases (ADR 0008 y 0009). Cambiarlo requiere el review de los 3, igual que eventos.sql. 'compuertas': clase de producto -> número de compuerta. 'mapeo_modelo': etiqueta que hoy devuelve el modelo (TrashNet, 6 clases) -> clase de producto; si el modelo se reentrena y ya devuelve clases de producto, no hace falta agregarlas: se aceptan tal cual. 'descartes': etiquetas que el modelo puede devolver y significan 'esto NO es un residuo' (una mano, una cara, un animal, la plataforma vacía): no abren ninguna compuerta y NUNCA se publican como evento. Lo lee raspberry/clases.py; schema/tests/test_contrato.py verifica que vision/classes.py y evento.schema.json coincidan.",
+  "compuertas": {
+    "plastico": 1,
+    "papel": 2,
+    "vidrio": 3,
+    "organico": 4,
+    "metal": 5
+  },
+  "mapeo_modelo": {
+    "cardboard": "papel",
+    "paper": "papel",
+    "plastic": "plastico",
+    "glass": "vidrio",
+    "metal": "metal",
+    "trash": "organico"
+  },
+  "descartes": ["ninguno"]
+}

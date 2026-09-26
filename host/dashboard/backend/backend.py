@@ -36,9 +36,6 @@ SCHEMA_PATH = Path(os.getenv(
 FRONTEND_DIR = Path(os.getenv(
     "ECOSORT_FRONTEND", Path(__file__).resolve().parent.parent / "frontend"))
 
-COLUMNAS = ["id", "evento_id", "dispositivo_id", "clase", "confianza", "compuerta",
-            "latencia_ms", "modelo", "ts_dispositivo", "ts_recepcion"]
-
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
 db.row_factory = sqlite3.Row
 db.execute("PRAGMA journal_mode=WAL")
@@ -165,10 +162,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _csv(self):
         with db_lock:
-            filas = db.execute(f"SELECT {', '.join(COLUMNAS)} FROM eventos ORDER BY id").fetchall()
+            cur = db.execute("SELECT * FROM eventos ORDER BY id")  # las columnas las define schema/eventos.sql
+            columnas = [c[0] for c in cur.description]
+            filas = cur.fetchall()
         buf = io.StringIO()
         w = csv.writer(buf, delimiter=";")    # ";" y coma decimal: formato de Excel en español
-        w.writerow(COLUMNAS)
+        w.writerow(columnas)
         for f in filas:
             w.writerow([str(v).replace(".", ",") if isinstance(v, float) else v for v in f])
         cuerpo = ("﻿" + buf.getvalue()).encode("utf-8")   # BOM: Excel respeta los acentos

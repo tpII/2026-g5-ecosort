@@ -11,7 +11,10 @@ export DASHBOARD_PORT="${DASHBOARD_PORT:-18080}" MQTT_PORT="${MQTT_PORT:-18830}"
 COMPOSE="docker compose -p ecosort-host-smoke -f docker-compose.yml -f docker-compose.dev.yml"
 API="http://127.0.0.1:${DASHBOARD_PORT}"
 
-EVENTO='{"evento_id":"00000000-0000-0000-0000-000000000001","dispositivo_id":"ecosort-01","ts":"2026-01-01T00:00:00.000+00:00","clase":"plastico","confianza":0.93,"compuerta":1,"latencia_ms":31.2,"modelo":"smoke"}'
+# formato del contrato v1 (schema/evento.schema.json). Si el contrato cambia y esto queda viejo,
+# el adapter lo rechaza y el paso 3 falla: se detecta solo.
+EVENTO='{"schema_version":1,"evento_id":"00000000-0000-0000-0000-000000000001","dispositivo_id":"ecosort-01","ts":"2026-01-01T00:00:00.000+00:00","clase":"plastico","clase_modelo":"plastic","confianza":0.93,"compuerta":1,"accionado":false,"latencia_ms":31.2,"modelo":"smoke"}'
+EVENTO_INVALIDO='{"evento_id":"00000000-0000-0000-0000-000000000002","clase":"banana"}'
 
 cleanup() {
   local status=$?
@@ -40,7 +43,8 @@ wait_for() {  # wait_for "<descripción>" <segundos> <comando...>
   fail "timeout esperando: $desc"
 }
 
-publicar() { $COMPOSE exec -T mosquitto mosquitto_pub -h localhost -q 1 -t ecosort/ecosort-01/eventos -m "$EVENTO"; }
+publicar() { $COMPOSE exec -T mosquitto mosquitto_pub -h localhost -q 1 -t ecosort/ecosort-01/eventos -m "${1:-$EVENTO}"; }
+rechazados_son() { [ "$($COMPOSE exec -T adapter python -c "import sqlite3; print(sqlite3.connect('/data/eventos.db').execute('select count(*) from eventos_rechazados').fetchone()[0])")" = "$1" ]; }
 
 echo "== 1) el adapter arranca SIN broker: no debe caerse y debe avisar que reintenta =="
 $COMPOSE up -d --build --no-deps adapter
@@ -71,5 +75,11 @@ publicar
 sleep 3
 resumen_has '"total": 1' || fail "un evento duplicado se contó dos veces"
 echo "ok: dedupe por evento_id"
+
+echo "== 5) un evento que no cumple el contrato no se cuenta y queda registrado como rechazado =="
+publicar "$EVENTO_INVALIDO"
+wait_for "1 evento rechazado registrado" 30 rechazados_son 1
+resumen_has '"total": 1' || fail "un evento inválido terminó contado como evento"
+echo "ok: contrato v1 aplicado en el adapter"
 
 echo "OK — smoke test del host completo"

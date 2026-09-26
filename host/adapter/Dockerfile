@@ -9,6 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_ROOT_USER_ACTION=ignore \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     ECOSORT_SCHEMA=/app/schema/eventos.sql \
+    ECOSORT_EVENTO_SCHEMA=/app/schema/evento.schema.json \
     ECOSORT_DB=/data/eventos.db
 
 # /data lo comparte con el dashboard (volumen nombrado). Mismo uid en las dos imágenes,
@@ -20,7 +21,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY adapter.py .
-COPY --from=schema eventos.sql /app/schema/eventos.sql
+COPY --from=schema eventos.sql evento.schema.json /app/schema/
 
 USER ecosort
 CMD ["python", "adapter.py"]

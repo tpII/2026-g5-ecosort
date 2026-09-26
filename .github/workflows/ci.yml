@@ -11,6 +11,7 @@ jobs:
     outputs:
       vision: ${{ steps.filter.outputs.vision }}
       host: ${{ steps.filter.outputs.host }}
+      contrato: ${{ steps.filter.outputs.contrato }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -21,6 +22,12 @@ jobs:
               - 'vision/**'
             host:
               - 'host/**'
+            contrato:
+              - 'schema/**'
+              - 'raspberry/**'
+              - 'host/adapter/**'
+              - 'host/dashboard/frontend/**'
+              - 'vision/classes.py'
 
   vision:
     needs: changes
@@ -75,8 +82,31 @@ jobs:
       - name: smoke_test
         run: bash host/tests/e2e_smoke.sh
 
+  # el contrato de eventos (ADR 0008) y la detección (ADR 0009) cruzan schema/, raspberry/, host/adapter y
+  # vision/classes.py: corre si cambia cualquiera de esas piezas, no solo host/
+  contrato:
+    needs: changes
+    if: needs.changes.outputs.contrato == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install
+        run: pip install paho-mqtt jsonschema numpy
+
+      - name: tests_de_contrato
+        run: python -m unittest discover -s schema/tests -v
+
+      # la máquina de estados que decide cuándo y si analizar (ADR 0009): sin cámara ni modelo
+      - name: tests_de_deteccion
+        run: python -m unittest discover -s raspberry/tests -v
+
   ci-ok:
-    needs: [vision, host]
+    needs: [vision, host, contrato]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -88,6 +118,10 @@ jobs:
           fi
           if [ "${{ needs.host.result }}" = "failure" ]; then
             echo "host falló"
+            exit 1
+          fi
+          if [ "${{ needs.contrato.result }}" = "failure" ]; then
+            echo "contrato falló"
             exit 1
           fi
           echo "ok"
