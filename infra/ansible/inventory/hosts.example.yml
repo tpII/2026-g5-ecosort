@@ -1,0 +1,10 @@
+# Copiar a inventory/hosts.yml (gitignored: la IP y el usuario son de cada despliegue, no del repo)
+# y completar con los datos reales de la Pi. Ver docs/guia-instalacion-raspberry.md, sección 1,
+# para encontrar la IP (`arp -a` / `ping -4 rasberrypi.local`).
+all:
+  children:
+    pi:
+      hosts:
+        rasberrypi:
+          ansible_host: 192.168.100.153   # la IP real de la Pi en tu red
+          ansible_user: pi                # el usuario configurado al grabar la SD

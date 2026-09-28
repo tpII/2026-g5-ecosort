@@ -1,0 +1,32 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 5: el entorno virtual con TFLite (ai-edge-litert).
+# Se corre SIN become: el venv y el .bashrc son del usuario, no de root (si esto corriera con
+# become, quedarían archivos de root en el home y el usuario no podría tocarlos por SSH después).
+
+- name: Instalar python3-venv y OpenCV del sistema
+  become: true
+  ansible.builtin.apt:
+    name: [python3-venv, python3-opencv]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Crear el entorno virtual (--system-site-packages) e instalar ai-edge-litert
+  ansible.builtin.pip:
+    name: ai-edge-litert
+    virtualenv: "{{ ecosort_venv }}"
+    virtualenv_command: "python3 -m venv --system-site-packages"
+
+- name: Verificar que TensorFlow Lite (LiteRT) se puede importar
+  ansible.builtin.command: >-
+    {{ ecosort_venv }}/bin/python -c
+    "from ai_edge_litert.interpreter import Interpreter; print('TFLite OK')"
+  register: ecosort_tflite_check
+  changed_when: false
+  failed_when: "'TFLite OK' not in ecosort_tflite_check.stdout"
+
+- name: Activar el entorno solo en cada sesión SSH interactiva
+  ansible.builtin.lineinfile:
+    path: "{{ ecosort_home }}/.bashrc"
+    line: "source {{ ecosort_venv }}/bin/activate"
+    create: true

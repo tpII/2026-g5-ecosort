@@ -1,0 +1,31 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 7: copiar raspberry/ y schema/ a la Pi. El orden importa
+# (igual que en la guía): raspberry/ primero, para que ~/ecosort exista antes de sumarle schema/.
+# rsync con --delete: una corrida deja la Pi igual a este checkout, no acumula archivos viejos —
+# pero nunca borra lo excluido (__pycache__, tests), es el comportamiento por defecto de rsync.
+
+- name: Crear ~/ecosort
+  ansible.builtin.file:
+    path: "{{ ecosort_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copiar raspberry/ (el detector, deteccion.py, clases.py y el modelo .tflite)
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../../raspberry/"
+    dest: "{{ ecosort_dir }}/raspberry/"
+    delete: true
+    rsync_opts:
+      - "--exclude=__pycache__"
+      - "--exclude=*.pyc"
+      - "--exclude=tests"
+  notify: reiniciar ecosort_pi
+
+- name: "Copiar schema/ (el contrato: clases.json, evento.schema.json, eventos.sql)"
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../../schema/"
+    dest: "{{ ecosort_dir }}/schema/"
+    delete: true
+    rsync_opts:
+      - "--exclude=tests"
+  notify: reiniciar ecosort_pi

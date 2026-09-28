@@ -1,0 +1,22 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 10 (lado Pi): reemplaza el `nohup python ecosort_pi.py
+# ... &` manual por un servicio systemd con reinicio automático (ADR 0006, y el pendiente de
+# systemd que quedaba abierto desde la Semana 4). Logs: journalctl -u ecosort_pi -f.
+#
+# El template solo se reinicia por el handler (cuando algo cambió: el código, el .service, o esto
+# es la primera vez) — así una corrida sin cambios no interrumpe una clasificación en curso.
+
+- name: Instalar el servicio systemd de ecosort_pi.py
+  become: true
+  ansible.builtin.template:
+    src: templates/ecosort_pi.service.j2
+    dest: /etc/systemd/system/ecosort_pi.service
+    mode: "0644"
+  notify: reiniciar ecosort_pi
+
+- name: Habilitar el servicio (arranca solo al encender la Pi)
+  become: true
+  ansible.builtin.systemd:
+    name: ecosort_pi
+    enabled: true
+    daemon_reload: true

@@ -186,9 +186,12 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   └── dashboard/
 │       ├── backend/backend.py, estadisticas.py  # API + panel; agregaciones para graficar
 │       └── frontend/index.html
-└── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
-    ├── evento.schema.json, clases.json, eventos.sql
-    └── tests/test_contrato.py
+├── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
+│   ├── evento.schema.json, clases.json, eventos.sql
+│   └── tests/test_contrato.py
+└── infra/ansible/                            # instalar/desplegar la Pi (ver su README.md)
+    ├── pi.yml, tasks/*.yml                   # Mosquitto, cámara, entorno Python, despliegue, servicio
+    └── templates/ecosort_pi.service.j2       # reemplaza al nohup manual (ADR 0006)
 ```
 
 Referenciado en la documentación pero **aún no versionado**: `docs/validacion.md`
@@ -229,6 +232,10 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 - [x] `incierto` implementado en el contrato (ADR 0002 + 0009): un objeto de baja confianza o cuadros inconsistentes ahora publica un evento igual, forzado a `clase: "organico"` (con `motivo` para distinguirlo de un orgánico genuino), en vez de no generar nada.
 - [x] API de estadísticas del dashboard (`/api/estadisticas/*`): cantidad y confianza por clase, pureza de orgánico, latencia de inferencia, y series por día / hora del día para graficar — la base para los contadores y gráficos propios (la observabilidad de infraestructura con Prometheus/Grafana sigue siendo un objetivo aparte, para después).
 
+## Avances (Semana 5, cont.)
+
+- [x] Ansible para la Pi (`infra/ansible/`): empaqueta la instalación manual de Mosquitto, la cámara, el entorno de Python/TFLite, copiar `raspberry/` + `schema/`, y un servicio `systemd` para `ecosort_pi.py` con reinicio automático (ADR 0006) en vez del `nohup ... &` de la guía. Falta correrlo contra la Pi real.
+
 ## Pendiente para Semana 6
 
 - [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
@@ -236,7 +243,7 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 - [ ] Firmware: 5 salidas por GPIO configurables — LEDs en octubre, servos en noviembre (bloqueado por hardware, llega en unas semanas) — y enganchar las señales de la detección a LEDs y sonidos que le den expresión a la papelera (objeto no reconocido, cayó, se trabó).
 - [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
 - [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
-- [ ] Empaquetar la instalación de la Pi como un playbook de Ansible (hoy es la guía manual paso a paso), incluyendo los unit files de `systemd` para `ecosort_pi.py` (ADR 0006).
+- [ ] Correr el playbook de Ansible (`infra/ansible/`) contra una Pi real y registrar el resultado en `BITACORA.md`.
 - [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
 - [ ] Sacar `docs/entregas/Plan de Proyecto-G5.pdf` de `main` y armar el ruleset de `entrega_*` en GitHub.
 
