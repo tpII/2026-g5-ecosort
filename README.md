@@ -5,16 +5,18 @@
 
 **Taller de Proyecto II 2026 — Grupo G5**
 
-Clasificador automático de residuos en 4 categorías (plástico, papel, vidrio,
-orgánico) basado en visión por computadora sobre Raspberry Pi 3, con un
-mecanismo físico de 4 compuertas y un pipeline de datos hacia un dashboard de
-monitoreo.
+Clasificador automático de residuos en 5 categorías (plástico, papel, vidrio,
+orgánico y metal) basado en visión por computadora sobre Raspberry Pi 3, con un
+mecanismo físico de 5 compuertas y un pipeline de datos hacia un dashboard de
+monitoreo propio.
 
-> **Estado del repositorio:** fin de Semana 3 — pipeline funcionando de
-> punta a punta: modelo (`vision/`, MobileNetV2 desplegado) → Raspberry Pi
-> (`raspberry/`, captura + inferencia + MQTT) → host cliente/servidor
-> (`host/`, adapter + dashboard, procesos separados). Roles del equipo
-> repartidos por área (ver tabla de Equipo).
+> **Estado del repositorio:** Semana 5 — pipeline funcionando de punta a punta: modelo (`vision/`,
+> MobileNetV2 desplegado y probado en la Pi real) → Raspberry Pi (`raspberry/`, captura +
+> detección en cascada + inferencia + MQTT) → host cliente/servidor (`host/`, adapter + dashboard
+> con API de estadísticas, procesos separados con Docker Compose). Contrato de eventos v1
+> (5 clases y 5 compuertas, ADR 0008) y clase `ninguno` para lo que no es un residuo (ADR 0009)
+> aceptados. Lo más reciente (`incierto`, estadísticas, Ansible) **todavía no se probó contra la
+> Pi real**, solo con tests y Docker. Roles del equipo repartidos por área (ver tabla de Equipo).
 
 ---
 
@@ -26,8 +28,7 @@ monitoreo.
 | Micaela Taini | `mikitalinda` | Modelo (`vision/`, datos, entrenamiento) |
 | David Alvarez | `davidalvarezok` | Firmware (servos/GPIO) y frontend del dashboard |
 
-Docente/cátedra: seguimiento de decisiones (ver ADRs con estado *Pendiente
-confirmar con el docente*).
+Docente/cátedra: Gastón Maron, seguimiento de decisiones vía los ADR de `docs/adr/`.
 
 ---
 
@@ -42,13 +43,13 @@ config:
 flowchart LR
      subgraph PI["🍓 Raspberry Pi 3 — modo Access Point · 192.168.20.1"]
         CAM["📷 <br/> Cámara USB"]
-        SERVOS["⚙️ <br/>Servos x4"]
-        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x4"]
+        SERVOS["⚙️ <br/>Servos x5"]
+        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x5"]
         MOSQ["📡 <br/>MOSQUITTO<br/>Broker MQTT"]
         NODEEXP["📈 <br/> NODE_EXPORTER<br/>cpu · ram · tmp"]
 
         CAM --> INF
-        INF -->|GPIO x4| SERVOS
+        INF -->|GPIO x5| SERVOS
         INF -->|event!| MOSQ
     end
 
@@ -73,11 +74,15 @@ El diagrama original en drawio queda como referencia histórica en
 ### Componentes
 
 - **Producto (dispositivo):** gabinete con cámara, tolva, plataforma fija de
-  **4 compuertas** (una por clase, cada una con su servo SG90, las 4 arrancan
-  cerradas) y la Raspberry Pi 3 en el interior.
-- **Inferencia:** modelo de clasificación de 4 clases exportado a **TFLite
-  int8**, obtenido por *fine-tuning* sobre un modelo preentrenado con una
-  herramienta drag-and-drop (a confirmar con el docente).
+  **5 compuertas** (una por clase — la quinta, metal, la suma el equipo en
+  noviembre; en octubre las 5 salidas se simulan con LEDs, ADR 0008) y la
+  Raspberry Pi 3 en el interior.
+- **Inferencia:** *fine-tuning* de MobileNetV2 (código propio en
+  [`vision/`](vision/), no una herramienta drag-and-drop, ver ADR 0001),
+  exportado a **TFLite int8**. Antes de publicar un evento, una máquina de
+  estados (`raspberry/deteccion.py`, ADR 0009) exige que el objeto quede
+  quieto y tenga tamaño de residuo, y descarta lo que el modelo ve como
+  `ninguno` (una mano, una cara, un animal).
 - **Transporte:** **MQTT** con **Mosquitto** como broker corriendo en la
   propia Pi.
 - **Persistencia:** **SQLite** (`eventos.db`), poblada por un script
@@ -93,9 +98,13 @@ El diagrama original en drawio queda como referencia histórica en
 
 ### Red
 
-La Pi arma su propia red en modo Access Point: `192.168.20.0/28` (14 hosts
-usables), Pi en `.1`, host cliente/servidor en `.2`. El tráfico MQTT nunca
-sale de esta red, por lo que se acepta operar **sin TLS ni autenticación**.
+**Diseño:** la Pi arma su propia red en modo Access Point, `192.168.20.0/28` (14 hosts usables),
+Pi en `.1`, host cliente/servidor en `.2`. El tráfico MQTT nunca sale de esta red, por lo que se
+acepta operar **sin TLS ni autenticación**.
+
+**Hoy:** el modo Access Point todavía no está implementado (ni a mano ni en
+[`infra/ansible/`](infra/ansible/)) — se prueba compartiendo la red que ya tiene internet (ver
+`docs/guia-instalacion-raspberry.md`, "Limitaciones conocidas").
 
 ---
 
@@ -103,8 +112,10 @@ sale de esta red, por lo que se acepta operar **sin TLS ni autenticación**.
 
 Transfer learning (ADR 0001) sobre el dataset público
 [TrashNet](https://github.com/garythung/trashnet) (`vision/data/trashnet/`,
-6 clases: cardboard, glass, metal, paper, plastic, trash — todavía sin
-mapear a las 4 clases finales del producto, ver `vision/classes.py`).
+6 clases nativas: cardboard, glass, metal, paper, plastic, trash), mapeadas
+a las 5 clases de producto **en el borde** (`schema/clases.json`, ADR 0008),
+no en el entrenamiento — ver `vision/classes.py`. Falta la clase `organico`
+propia (TrashNet no la tiene) y los negativos para `ninguno` (ADR 0009).
 Backbone por defecto: **MobileNetV2 224px**, el mismo que está desplegado
 en `raspberry/modelo/`; `mobilenetv3small` queda como alternativa para
 comparar en igualdad de condiciones. Se entrena en Colab
@@ -204,8 +215,8 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 
 | # | Decisión | Estado |
 |---|---|---|
-| [0001](docs/adr/0001-modelo-preentrenado-vs-finetune.md) | Fine-tuning sobre modelo preentrenado (export TFLite int8) en vez de entrenar desde cero | Propuesto — falta confirmar herramienta exacta |
-| [0002](docs/adr/0002-plataforma-4-compuertas-collar.md) | Plataforma fija de 4 compuertas (una por clase), reemplaza 3 iteraciones previas | Aceptado |
+| [0001](docs/adr/0001-modelo-preentrenado-vs-finetune.md) | Fine-tuning de MobileNetV2 con código propio (export TFLite int8), no una herramienta drag-and-drop | Aceptado |
+| [0002](docs/adr/0002-plataforma-4-compuertas-collar.md) | Plataforma fija de compuertas (una por clase), reemplaza 3 iteraciones previas — ampliada por la ADR 0008 a 5 | Aceptado |
 | [0003](docs/adr/0003-mqtt-sqlite-como-contrato.md) | Transporte MQTT + Mosquitto; persistencia SQLite vía adaptador propio | Aceptado |
 | [0004](docs/adr/0004-grafana-vs-dashboard-propio.md) | Grafana (+ Prometheus/node_exporter opcional) en vez de dashboard propio | Rechazada — reemplazada por ADR 0005 |
 | [0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md) | Dashboard propio (Front End) leyendo SQLite + Prometheus, en vez de Grafana — a pedido del docente | Aceptado |
@@ -216,7 +227,7 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 
 ---
 
-## Avances (Semana 3)
+## Avances (Semana 3 y 4)
 
 - [x] Mergeado el runtime completo de la Raspberry Pi (rama `Mica`, integración de prueba): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard — funcionando de punta a punta contra la Pi real.
 - [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
@@ -231,9 +242,6 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 - [x] CI de formato de entregas: los PDF de `docs/entregas/` se chequean (fuente, tamaño, interlineado) al promoverlos de `main` a una rama `entrega_N`, con la skill de la cátedra ([`ia-guidelines-taller`](https://github.com/tpII/ia-guidelines-taller)).
 - [x] `incierto` implementado en el contrato (ADR 0002 + 0009): un objeto de baja confianza o cuadros inconsistentes ahora publica un evento igual, forzado a `clase: "organico"` (con `motivo` para distinguirlo de un orgánico genuino), en vez de no generar nada.
 - [x] API de estadísticas del dashboard (`/api/estadisticas/*`): cantidad y confianza por clase, pureza de orgánico, latencia de inferencia, y series por día / hora del día para graficar — la base para los contadores y gráficos propios (la observabilidad de infraestructura con Prometheus/Grafana sigue siendo un objetivo aparte, para después).
-
-## Avances (Semana 5, cont.)
-
 - [x] Ansible para la Pi (`infra/ansible/`): empaqueta la instalación manual de Mosquitto, la cámara, el entorno de Python/TFLite, copiar `raspberry/` + `schema/`, y un servicio `systemd` para `ecosort_pi.py` con reinicio automático (ADR 0006) en vez del `nohup ... &` de la guía. Falta correrlo contra la Pi real.
 
 ## Pendiente para Semana 6

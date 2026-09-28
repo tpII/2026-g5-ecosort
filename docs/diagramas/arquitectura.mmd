@@ -5,13 +5,13 @@ config:
 flowchart LR
      subgraph PI["🍓 Raspberry Pi 3 — modo Access Point · 192.168.20.1"]
         CAM["📷 <br/> Cámara USB"]
-        SERVOS["⚙️ <br/>Servos x4"]
-        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x4"]
+        SERVOS["⚙️ <br/>Servos x5"]
+        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x5"]
         MOSQ["📡 <br/>MOSQUITTO<br/>Broker MQTT"]
         NODEEXP["📈 <br/> NODE_EXPORTER<br/>cpu · ram · tmp"]
 
         CAM --> INF
-        INF -->|GPIO x4| SERVOS
+        INF -->|GPIO x5| SERVOS
         INF -->|event!| MOSQ
     end
 
