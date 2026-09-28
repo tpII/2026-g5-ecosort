@@ -30,18 +30,28 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from clases import compuerta_de, producto_de
+from clases import compuerta_de, es_descarte, producto_de
+from deteccion import MOTIVOS_INCIERTO
 
 SCHEMA_VERSION = 1
 
 
 def armar_evento(dispositivo_id, clase_modelo, confianza, latencia_ms=None, modelo=None,
-                 accionado=False):
+                 accionado=False, motivo=None):
     """Payload de un evento según schema/evento.schema.json. Función pura (sin red):
-    es lo que valida el test de contrato."""
-    clase = producto_de(clase_modelo)
-    if clase is None:
+    es lo que valida el test de contrato.
+
+    motivo: None para un evento genuino (default). Para uno incierto (uno de MOTIVOS_INCIERTO:
+    el modelo vio un residuo pero con baja confianza, o sus cuadros no coincidieron), la clase se
+    fuerza a 'organico' aunque clase_modelo sea otra cosa — ADR 0002 (baja confianza abre esa
+    compuerta) y ADR 0008/0009 (por qué comparte contenedor con orgánico). clase_modelo conserva
+    la etiqueta que de verdad vio el modelo, para poder evaluarlo aunque el evento cuente como
+    orgánico."""
+    if es_descarte(clase_modelo):
         raise ValueError(f"{clase_modelo!r} es un descarte (no es un residuo): no se publica como evento")
+    if motivo is not None and motivo not in MOTIVOS_INCIERTO:
+        raise ValueError(f"motivo {motivo!r} no es uno de los de un evento incierto: {MOTIVOS_INCIERTO}")
+    clase = "organico" if motivo is not None else producto_de(clase_modelo)
     return {
         "schema_version": SCHEMA_VERSION,
         "evento_id": str(uuid.uuid4()),  # permite deduplicar en el adaptador
@@ -54,6 +64,7 @@ def armar_evento(dispositivo_id, clase_modelo, confianza, latencia_ms=None, mode
         "accionado": bool(accionado),
         "latencia_ms": latencia_ms,
         "modelo": modelo,
+        "motivo": motivo,
     }
 
 
@@ -90,12 +101,12 @@ class EcoSortMQTT:
         print(f"[mqtt] desconectado ({reason_code}), reintentando...")
 
     def publicar_evento(self, clase_modelo, confianza, latencia_ms=None, modelo=None,
-                        accionado=False):
+                        accionado=False, motivo=None):
         """Publica un evento de clasificación. No bloquea: si no hay conexión,
         paho lo encola en memoria y lo manda al reconectar. Levanta KeyError si la
-        etiqueta del modelo no está en schema/clases.json."""
+        etiqueta del modelo no está en schema/clases.json. `motivo`: ver armar_evento."""
         payload = armar_evento(self.dispositivo_id, clase_modelo, confianza,
-                               latencia_ms, modelo, accionado)
+                               latencia_ms, modelo, accionado, motivo)
         return self.client.publish(self.topic_eventos, json.dumps(payload), qos=1)
 
     def publicar_vivo(self, datos):

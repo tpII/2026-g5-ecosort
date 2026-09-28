@@ -184,7 +184,7 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   ├── docker-compose.yml                   # adapter + dashboard (+ docker-compose.dev.yml: broker local)
 │   ├── adapter/adapter.py                   # MQTT -> SQLite, único INSERT real
 │   └── dashboard/
-│       ├── backend/backend.py               # lee SQLite, sirve la API + el panel
+│       ├── backend/backend.py, estadisticas.py  # API + panel; agregaciones para graficar
 │       └── frontend/index.html
 └── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
     ├── evento.schema.json, clases.json, eventos.sql
@@ -223,15 +223,22 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 - [x] Detección robusta (ADR 0009): una máquina de estados exige que el objeto quede quieto y tenga tamaño de residuo antes de analizarlo, y la nueva clase `ninguno` permite rechazar lo que no es un residuo sin ensuciar los eventos. En una comparación sintética pasó de 4 eventos falsos sobre 6 a 0, y de 285 a 15 inferencias. Umbrales todavía sin calibrar con la cámara real.
 - [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
 
-## Pendiente para Semana 4
+## Avances (Semana 5)
 
-- [ ] Review de los 3 del contrato v1 y de la detección (ADR 0008 y 0009) antes de mergearlos.
+- [x] CI de formato de entregas: los PDF de `docs/entregas/` se chequean (fuente, tamaño, interlineado) al promoverlos de `main` a una rama `entrega_N`, con la skill de la cátedra ([`ia-guidelines-taller`](https://github.com/tpII/ia-guidelines-taller)).
+- [x] `incierto` implementado en el contrato (ADR 0002 + 0009): un objeto de baja confianza o cuadros inconsistentes ahora publica un evento igual, forzado a `clase: "organico"` (con `motivo` para distinguirlo de un orgánico genuino), en vez de no generar nada.
+- [x] API de estadísticas del dashboard (`/api/estadisticas/*`): cantidad y confianza por clase, pureza de orgánico, latencia de inferencia, y series por día / hora del día para graficar — la base para los contadores y gráficos propios (la observabilidad de infraestructura con Prometheus/Grafana sigue siendo un objetivo aparte, para después).
+
+## Pendiente para Semana 6
+
 - [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
 - [ ] Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo) midiendo eventos falsos.
 - [ ] Firmware: 5 salidas por GPIO configurables — LEDs en octubre, servos en noviembre (bloqueado por hardware, llega en unas semanas) — y enganchar las señales de la detección a LEDs y sonidos que le den expresión a la papelera (objeto no reconocido, cayó, se trabó).
 - [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
 - [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
-- [ ] Unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006).
+- [ ] Empaquetar la instalación de la Pi como un playbook de Ansible (hoy es la guía manual paso a paso), incluyendo los unit files de `systemd` para `ecosort_pi.py` (ADR 0006).
+- [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
+- [ ] Sacar `docs/entregas/Plan de Proyecto-G5.pdf` de `main` y armar el ruleset de `entrega_*` en GitHub.
 
 Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
 

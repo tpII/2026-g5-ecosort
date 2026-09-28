@@ -71,7 +71,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: lint_check
-        run: python3 -m py_compile host/adapter/adapter.py host/dashboard/backend/backend.py
+        run: |
+          python3 -m py_compile host/adapter/adapter.py host/dashboard/backend/backend.py \
+            host/dashboard/backend/estadisticas.py
+
+      # agregaciones de /api/estadisticas/* (host/dashboard/backend/estadisticas.py): funciones
+      # puras, sin DB ni Docker
+      - name: tests_de_estadisticas
+        run: python3 -m unittest discover -s host/dashboard/backend -v
 
       - name: compose_config
         run: |

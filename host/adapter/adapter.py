@@ -42,6 +42,7 @@ COLUMNAS_AGREGADAS = {
     "schema_version": "INTEGER NOT NULL DEFAULT 1",
     "clase_modelo": "TEXT",
     "accionado": "INTEGER NOT NULL DEFAULT 0",
+    "motivo": "TEXT",
 }
 MAX_PAYLOAD_RECHAZADO = 2000
 
@@ -103,6 +104,7 @@ def guardar_evento(e):
         "confianza": e["confianza"],
         "compuerta": e["compuerta"],
         "accionado": int(e["accionado"]),
+        "motivo": e.get("motivo"),
         "latencia_ms": e.get("latencia_ms"),
         "modelo": e.get("modelo"),
         "ts_dispositivo": e["ts"],
@@ -111,10 +113,10 @@ def guardar_evento(e):
     with db_lock:
         cur = db.execute(
             "INSERT OR IGNORE INTO eventos (schema_version, evento_id, dispositivo_id, clase, "
-            "clase_modelo, confianza, compuerta, accionado, latencia_ms, modelo, ts_dispositivo, "
-            "ts_recepcion) VALUES (:schema_version, :evento_id, :dispositivo_id, :clase, "
-            ":clase_modelo, :confianza, :compuerta, :accionado, :latencia_ms, :modelo, "
-            ":ts_dispositivo, :ts_recepcion)", fila)
+            "clase_modelo, confianza, compuerta, accionado, motivo, latencia_ms, modelo, "
+            "ts_dispositivo, ts_recepcion) VALUES (:schema_version, :evento_id, :dispositivo_id, "
+            ":clase, :clase_modelo, :confianza, :compuerta, :accionado, :motivo, :latencia_ms, "
+            ":modelo, :ts_dispositivo, :ts_recepcion)", fila)
         db.commit()
     if cur.rowcount:
         print(f"[adapter] guardado: {fila['clase']} ({fila['confianza']}) de {fila['dispositivo_id']}")

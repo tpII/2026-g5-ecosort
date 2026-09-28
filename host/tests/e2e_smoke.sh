@@ -33,6 +33,7 @@ fail() { echo "FALLA: $*"; exit 1; }
 # `curl | grep -q` falla por SIGPIPE en cuanto grep encuentra el patrón y sale.
 log_has() { local out; out=$($COMPOSE logs --no-color "$1" 2>&1) || return 1; grep -q "$2" <<<"$out"; }
 resumen_has() { local body; body=$(curl -sf "$API/api/resumen") || return 1; grep -q "$1" <<<"$body"; }
+estadisticas_has() { local body; body=$(curl -sf "$API/api/estadisticas/resumen") || return 1; grep -q "$1" <<<"$body"; }
 
 wait_for() {  # wait_for "<descripción>" <segundos> <comando...>
   local desc=$1 max=$2; shift 2
@@ -81,5 +82,12 @@ publicar "$EVENTO_INVALIDO"
 wait_for "1 evento rechazado registrado" 30 rechazados_son 1
 resumen_has '"total": 1' || fail "un evento inválido terminó contado como evento"
 echo "ok: contrato v1 aplicado en el adapter"
+
+echo "== 6) /api/estadisticas/* agrega lo mismo que quedó en la base (estadisticas.py) =="
+wait_for "estadisticas ve el evento" 30 estadisticas_has '"total": 1'
+estadisticas_has '"plastico"' || fail "estadisticas/resumen no trae la clase publicada"
+curl -sf "$API/api/estadisticas/serie?agrupar=dia" | grep -q '"puntos"' \
+  || fail "estadisticas/serie no respondió como se esperaba"
+echo "ok: estadísticas responde con el evento contado"
 
 echo "OK — smoke test del host completo"

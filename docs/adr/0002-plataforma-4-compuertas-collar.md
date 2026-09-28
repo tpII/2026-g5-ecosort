@@ -2,7 +2,10 @@
 
 **Estado:** Aceptado. Ampliada por la [ADR 0008](0008-contrato-de-eventos.md): se suma una quinta
 compuerta, para metal (a cargo del equipo, en noviembre; en octubre las salidas se simulan con LEDs).
-El resto de esta decisión (compuertas fijas, todas cerradas por defecto) sigue vigente.
+El resto de esta decisión (compuertas fijas, todas cerradas por defecto) sigue vigente. La regla de
+"baja confianza abre orgánico" (ver Decisión y Consecuencias) estaba pendiente de implementar; ya lo
+está, en el contrato: ver [`docs/contrato-mqtt.md`](../contrato-mqtt.md) y la
+[ADR 0009](0009-deteccion-en-cascada-y-rechazo.md).
 
 ## Contexto
 

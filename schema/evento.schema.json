@@ -57,7 +57,18 @@
     "modelo": {
       "description": "Identificador del modelo que clasificó (hoy la ruta del .tflite).",
       "type": ["string", "null"]
+    },
+    "motivo": {
+      "description": "Ausente o null en un evento genuino. Presente cuando el evento es incierto (ADR 0002 y 0009): el modelo vio un residuo pero no supo cuál con suficiente confianza, y 'clase' se fuerza a 'organico' aunque 'clase_modelo' sea otra cosa. 'confianza' sigue siendo la del modelo en clase_modelo, no en organico.",
+      "type": ["string", "null"],
+      "enum": ["baja_confianza", "inconsistente", null]
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "if": {
+    "not": {"properties": {"motivo": {"const": null}}}
+  },
+  "then": {
+    "properties": {"clase": {"const": "organico"}}
+  }
 }

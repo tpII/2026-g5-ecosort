@@ -12,9 +12,13 @@ nítidos y se decide por el promedio. Una mano que pasa, una cara o un animal no
 si llegan el modelo los descarta con la clase "ninguno". Se cuenta UN evento por objeto aceptado, y
 no vuelve a analizar nada hasta que la plataforma queda libre.
 
+Un objeto incierto (parece un residuo pero no se sabe cuál) también publica un evento, pero
+forzado a la clase "organico" (ADR 0002): comparte contenedor con la baja confianza, a costa
+de su pureza — es un trade-off documentado, no un error.
+
 Tópicos MQTT que publica:
     ecosort/<id>/vivo     -> estado de la detección, ~3 veces por segundo (QoS 0)
-    ecosort/<id>/eventos  -> un mensaje por residuo aceptado (QoS 1), ver docs/contrato-mqtt.md
+    ecosort/<id>/eventos  -> un mensaje por residuo aceptado o incierto (QoS 1), ver docs/contrato-mqtt.md
 
 Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, clases.py, deteccion.py,
 labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py si se usa --video.
@@ -147,12 +151,19 @@ class Detector:
             d = r.decision
             if d is not None:
                 ultima = d
-                if d.tipo == "aceptado":
+                if d.tipo in ("aceptado", "incierto"):
+                    # incierto: mismo evento, pero armar_evento fuerza la clase a "organico"
+                    # (ADR 0002) cuando se le pasa un motivo — el modelo vio d.etiqueta, no organico.
                     self.pub.publicar_evento(d.etiqueta, d.confianza,
                                              latencia_ms=round(sum(tiempos) / len(tiempos), 1),
-                                             modelo=self.modelo)
+                                             modelo=self.modelo,
+                                             motivo=d.motivo if d.tipo == "incierto" else None)
                     total += 1
-                    print(f"[{total}] contado: {d.etiqueta} ({d.confianza:.0%})")
+                    if d.tipo == "aceptado":
+                        print(f"[{total}] contado: {d.etiqueta} ({d.confianza:.0%})")
+                    else:
+                        print(f"[{total}] incierto -> organico: el modelo vio {d.etiqueta} "
+                             f"({d.confianza:.0%}), motivo {d.motivo}")
                 else:
                     visto = f" (el modelo vio {d.etiqueta}, {d.confianza:.0%})" if d.etiqueta else ""
                     print(f"[{d.tipo}] {d.motivo}{visto}")
@@ -167,21 +178,26 @@ class Detector:
                 ultima = None
 
             # 3) Estado en vivo para el dashboard (~3 por segundo)
-            aceptada = ultima is not None and ultima.tipo == "aceptado"
+            publicada = ultima is not None and ultima.tipo in ("aceptado", "incierto")
             if t0 - ultimo_vivo >= 0.33:
                 self.pub.publicar_vivo({
                     "presente": maquina.estado is not Estado.LIBRE,
                     "estado": maquina.estado.value,
-                    "clase": ultima.etiqueta if aceptada else None,
-                    "confianza": round(ultima.confianza, 4) if aceptada else None,
-                    "contado": aceptada,
+                    # incierto también publica un evento, pero a "organico" (ADR 0002): acá se
+                    # muestra esa clase real, no la etiqueta cruda que vio el modelo (esa va en vivo
+                    # como "motivo", igual que un descarte)
+                    "clase": ("organico" if ultima.tipo == "incierto" else ultima.etiqueta) if publicada else None,
+                    "confianza": round(ultima.confianza, 4) if publicada else None,
+                    "contado": publicada,
                     "motivo": ultima.motivo if ultima is not None else None,
                 })
                 ultimo_vivo = t0
 
             if self.video:
-                if aceptada:
+                if ultima is not None and ultima.tipo == "aceptado":
                     texto = f"{ultima.etiqueta} {ultima.confianza:.0%}  [contado]"
+                elif ultima is not None and ultima.tipo == "incierto":
+                    texto = f"incierto ({ultima.motivo}): el modelo vio {ultima.etiqueta} -> organico"
                 elif ultima is not None:
                     texto = f"no reconocido ({ultima.motivo})"
                 elif maquina.estado is Estado.ASENTANDO:
