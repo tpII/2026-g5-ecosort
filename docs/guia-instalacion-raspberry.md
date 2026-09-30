@@ -5,6 +5,12 @@ cámara y la comunicación por MQTT (Mosquitto). El adapter y el dashboard **no 
 van en el host cliente/servidor, ver `host/README.md`. Incluye los problemas que aparecieron
 durante la puesta en marcha y cómo se resolvieron.
 
+**Los pasos 2, 4, 5, 7 y 10 ya están empaquetados en un playbook de Ansible**
+(`infra/ansible/`, ver su `README.md`): para instalar o redesplegar una Pi de una, sin escribir
+estos comandos a mano cada vez. Esta guía sigue siendo la referencia de **qué** hace falta y
+**por qué** — los problemas reales y sus soluciones —, y el camino a mano si Ansible no es una
+opción todavía.
+
 ## Arquitectura
 
 ```
@@ -276,6 +282,17 @@ cd ~/ecosort
 source ~/ecosort-venv/bin/activate
 nohup python ecosort_pi.py --modelo modelo/ecosort_int8.tflite --video > detector.log 2>&1 &
 ```
+
+Si el broker o el `dispositivo_id` no son los de siempre (`localhost` / `ecosort-01`), se pasan
+como `--broker` / `--dispositivo`, o con las variables `ECOSORT_BROKER` / `ECOSORT_DISPOSITIVO`
+(el flag gana si se dan los dos) — cómodo para no tener que escribirlos cada vez en una sesión SSH.
+
+Con Ansible (`infra/ansible/`, `tasks/servicio.yml`) esto queda como un servicio `systemd`
+(`ecosort_pi.service`) en vez de un `nohup` a mano: arranca solo al encender la Pi y se reinicia
+si el proceso se cae (ADR 0006). El broker y el `dispositivo_id` de esa Pi quedan en
+`/etc/ecosort/ecosort_pi.env` (esas mismas variables), no hardcodeados en el `.service` — ver
+`infra/ansible/README.md`. `sudo systemctl start ecosort_pi` en vez del `nohup`, y
+`journalctl -u ecosort_pi -f` en vez de `cat detector.log`.
 
 **En tu notebook** (directo, sin SSH — con Docker instalado, ver `host/README.md`):
 

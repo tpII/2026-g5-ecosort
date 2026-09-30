@@ -1,0 +1,31 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 4. La verificación no falla el play: la cámara puede
+# no estar conectada todavía en el momento de correr esto, y eso no es un error del playbook.
+
+- name: Instalar las herramientas de la cámara USB
+  become: true
+  ansible.builtin.apt:
+    name: [v4l-utils, fswebcam]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Sumar al usuario al grupo "video" (acceso a /dev/video0 sin sudo)
+  become: true
+  ansible.builtin.user:
+    name: "{{ ecosort_user }}"
+    groups: video
+    append: true
+
+- name: Ver qué dispositivos de video detecta v4l2 (no rompe el play si no hay cámara)
+  ansible.builtin.command: v4l2-ctl --list-devices
+  register: ecosort_camaras
+  changed_when: false
+  failed_when: false
+
+- name: Mostrar los dispositivos encontrados
+  ansible.builtin.debug:
+    msg: >-
+      {{ ecosort_camaras.stdout_lines
+         if ecosort_camaras.rc == 0
+         else ['v4l2-ctl no encontró ninguna cámara: revisar que esté conectada (lsusb) antes de correr ecosort_pi.py'] }}

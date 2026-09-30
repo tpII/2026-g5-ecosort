@@ -12,6 +12,7 @@ jobs:
       vision: ${{ steps.filter.outputs.vision }}
       host: ${{ steps.filter.outputs.host }}
       contrato: ${{ steps.filter.outputs.contrato }}
+      ansible: ${{ steps.filter.outputs.ansible }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -28,6 +29,8 @@ jobs:
               - 'host/adapter/**'
               - 'host/dashboard/frontend/**'
               - 'vision/classes.py'
+            ansible:
+              - 'infra/ansible/**'
 
   vision:
     needs: changes
@@ -163,8 +166,36 @@ jobs:
           path: entregas-chequeo/
           if-no-files-found: ignore
 
+  # infra/ansible/ (empaquetado de la instalación de la Pi): nada de esto corre contra hardware
+  # real (eso se valida a mano y se registra en BITACORA.md), solo sintaxis y la plantilla del
+  # servicio systemd.
+  ansible:
+    needs: changes
+    if: needs.changes.outputs.ansible == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install
+        run: pip install ansible-core jinja2
+
+      - name: collections
+        run: ansible-galaxy collection install -r infra/ansible/requirements.yml
+
+      - name: syntax_check
+        run: |
+          cd infra/ansible
+          ansible-playbook pi.yml -i inventory/hosts.example.yml --syntax-check
+
+      - name: tests_de_la_plantilla_del_servicio
+        run: python -m unittest discover -s infra/ansible/tests -v
+
   ci-ok:
-    needs: [vision, host, contrato, entrega]
+    needs: [vision, host, contrato, entrega, ansible]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -184,6 +215,10 @@ jobs:
           fi
           if [ "${{ needs.entrega.result }}" = "failure" ]; then
             echo "el formato de la entrega no cumple (ver el resumen del job entrega)"
+            exit 1
+          fi
+          if [ "${{ needs.ansible.result }}" = "failure" ]; then
+            echo "ansible falló"
             exit 1
           fi
           echo "ok"
