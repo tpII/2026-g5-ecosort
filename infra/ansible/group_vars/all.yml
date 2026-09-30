@@ -8,4 +8,9 @@ ecosort_venv: "{{ ecosort_home }}/ecosort-venv"    # paso 5
 
 ecosort_modelo: "ecosort_int8.tflite"    # en raspberry/modelo/ (paso 6/8: int8 es el que se usa)
 ecosort_video: true                       # --video: sirve el video en :8000 (paso 9/10)
-ecosort_broker: "localhost"               # Mosquitto corre en la propia Pi
+
+# Lo que varía por Pi física o por red (no por código): va en /etc/ecosort/ecosort_pi.env
+# (tasks/servicio.yml, templates/ecosort_pi.env.j2) y lo lee ecosort_pi.py como ECOSORT_BROKER /
+# ECOSORT_DISPOSITIVO (con env var como default de argparse: un flag a mano sigue pisándolo).
+ecosort_broker: "localhost"        # Mosquitto corre en la propia Pi
+ecosort_dispositivo: "ecosort-01"  # identidad con la que se publica (docs/contrato-mqtt.md)

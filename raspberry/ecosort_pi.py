@@ -25,6 +25,7 @@ labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py 
 """
 
 import argparse
+import os
 import threading
 import time
 
@@ -225,8 +226,11 @@ if __name__ == "__main__":
     ap.add_argument("--modelo", required=True)
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--video", action="store_true", help="servir el video en el puerto 8000")
-    ap.add_argument("--broker", default="localhost")
-    ap.add_argument("--dispositivo", default="ecosort-01")
+    # ECOSORT_BROKER / ECOSORT_DISPOSITIVO: lo que varía por Pi física (qué broker, con qué
+    # identidad se publica). Los lee systemd desde infra/ansible/templates/ecosort_pi.env.j2
+    # (EnvironmentFile); el flag sigue existiendo para correrlo a mano y gana si se pasa.
+    ap.add_argument("--broker", default=os.getenv("ECOSORT_BROKER", "localhost"))
+    ap.add_argument("--dispositivo", default=os.getenv("ECOSORT_DISPOSITIVO", "ecosort-01"))
     args = ap.parse_args()
 
     clf = Clasificador(args.modelo)

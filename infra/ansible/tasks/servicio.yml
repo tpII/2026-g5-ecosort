@@ -6,6 +6,21 @@
 # El template solo se reinicia por el handler (cuando algo cambió: el código, el .service, o esto
 # es la primera vez) — así una corrida sin cambios no interrumpe una clasificación en curso.
 
+- name: Crear /etc/ecosort
+  become: true
+  ansible.builtin.file:
+    path: /etc/ecosort
+    state: directory
+    mode: "0755"
+
+- name: "Escribir /etc/ecosort/ecosort_pi.env (lo que varía por esta Pi: broker, dispositivo_id)"
+  become: true
+  ansible.builtin.template:
+    src: templates/ecosort_pi.env.j2
+    dest: /etc/ecosort/ecosort_pi.env
+    mode: "0644"
+  notify: reiniciar ecosort_pi
+
 - name: Instalar el servicio systemd de ecosort_pi.py
   become: true
   ansible.builtin.template:

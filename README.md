@@ -243,6 +243,8 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 - [x] `incierto` implementado en el contrato (ADR 0002 + 0009): un objeto de baja confianza o cuadros inconsistentes ahora publica un evento igual, forzado a `clase: "organico"` (con `motivo` para distinguirlo de un orgánico genuino), en vez de no generar nada.
 - [x] API de estadísticas del dashboard (`/api/estadisticas/*`): cantidad y confianza por clase, pureza de orgánico, latencia de inferencia, y series por día / hora del día para graficar — la base para los contadores y gráficos propios (la observabilidad de infraestructura con Prometheus/Grafana sigue siendo un objetivo aparte, para después).
 - [x] Ansible para la Pi (`infra/ansible/`): empaqueta la instalación manual de Mosquitto, la cámara, el entorno de Python/TFLite, copiar `raspberry/` + `schema/`, y un servicio `systemd` para `ecosort_pi.py` con reinicio automático (ADR 0006) en vez del `nohup ... &` de la guía. Falta correrlo contra la Pi real.
+- [x] ADR 0001 corregida: describía una herramienta drag-and-drop que nunca se usó; ahora documenta lo que realmente se implementó (fine-tuning con código propio en `vision/`).
+- [x] Configuración por `.env`/`EnvironmentFile`, no hardcodeada: `host/.env.example` (Docker Compose lo lee solo) y `/etc/ecosort/ecosort_pi.env` (generado por Ansible, `EnvironmentFile` del servicio). De paso se encontró un bug real: el `.service` de `ecosort_pi` seteaba `ECOSORT_BROKER` como variable de entorno, pero el script nunca la leía — no hacía nada.
 
 ## Pendiente para Semana 6
 

@@ -29,6 +29,17 @@ ansible-playbook pi.yml -k -K --tags mosquitto,camara,entorno   # solo la instal
 ansible-playbook pi.yml -k -K --tags verificar      # paso 8 de la guía: bench + temperatura (tarda, no corre solo)
 ```
 
+## Configuración
+
+Lo que varía por Pi física (a qué broker se conecta, con qué `dispositivo_id` publica) se define
+en `group_vars/all.yml` (`ecosort_broker`, `ecosort_dispositivo`) — se puede pisar por host en
+`inventory/hosts.yml` o con `-e ecosort_broker=...` en la línea de comandos. `tasks/servicio.yml`
+lo vuelca en `/etc/ecosort/ecosort_pi.env` (`templates/ecosort_pi.env.j2`), que el `.service`
+carga con `EnvironmentFile=` — el equivalente nativo de systemd a un `.env`. `ecosort_pi.py` los
+lee como `ECOSORT_BROKER`/`ECOSORT_DISPOSITIVO` (con `os.getenv(...)` como default de sus propios
+flags `--broker`/`--dispositivo`), así que correrlo a mano con un flag explícito sigue pisando lo
+que diga el archivo. Nada de esto queda hardcodeado en el `.service` ni en el script.
+
 ## Qué hace (y de qué paso de la guía sale)
 
 | Tarea | Paso | Qué automatiza |
@@ -69,6 +80,10 @@ NetworkManager), es la extensión natural de este rol, pero es una decisión de 
   el playbook de nuevo sin haber cambiado nada.
 - **`host_key_checking = False`** (`ansible.cfg`): cómodo para una Pi que se re-flashea seguido en
   una LAN cerrada de laboratorio. No es una postura razonable para algo expuesto a internet.
+- **`EnvironmentFile` en vez de `Environment=` inline en el `.service`**: lo que varía por Pi
+  (broker, `dispositivo_id`) vive en un archivo aparte, no horneado en la unit de systemd. Antes
+  el `.service` tenía `Environment=ECOSORT_BROKER=...`, pero `ecosort_pi.py` nunca la leía (solo el
+  flag `--broker`) — quedaba ahí sin hacer nada. Ahora el env file es real: `ecosort_pi.py` lo lee.
 
 ## Probarlo sin una Pi real
 

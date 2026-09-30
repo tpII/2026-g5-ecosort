@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 User={{ ecosort_user }}
 WorkingDirectory={{ ecosort_dir }}/raspberry
-Environment=ECOSORT_BROKER={{ ecosort_broker }}
+EnvironmentFile=/etc/ecosort/ecosort_pi.env
 ExecStart={{ ecosort_venv }}/bin/python ecosort_pi.py --modelo modelo/{{ ecosort_modelo }}{{ ' --video' if ecosort_video else '' }}
 Restart=on-failure
 RestartSec=5

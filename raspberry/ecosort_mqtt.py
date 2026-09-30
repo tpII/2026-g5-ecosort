@@ -134,14 +134,16 @@ class EcoSortMQTT:
 if __name__ == "__main__":
     # Prueba sin cámara ni modelo: publica eventos falsos cada 2 segundos, con las etiquetas
     # que hoy devuelve el modelo (así ejercita el mapeo a clase de producto y a compuerta).
-    # ECOSORT_BROKER apunta a otro broker (por defecto, localhost).
+    # ECOSORT_BROKER apunta a otro broker (por defecto, localhost); ECOSORT_DISPOSITIVO cambia
+    # la identidad con la que se publica (por defecto, ecosort-01).
     import os
     import random
 
     from clases import MAPEO_MODELO
 
     etiquetas = list(MAPEO_MODELO)
-    pub = EcoSortMQTT(host=os.getenv("ECOSORT_BROKER", "localhost"))
+    pub = EcoSortMQTT(dispositivo_id=os.getenv("ECOSORT_DISPOSITIVO", "ecosort-01"),
+                      host=os.getenv("ECOSORT_BROKER", "localhost"))
     try:
         while True:
             etiqueta = random.choice(etiquetas)

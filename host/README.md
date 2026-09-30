@@ -31,24 +31,40 @@ que las piezas encajaban, corriendo entero en la Pi por `localhost` (con lo
 cual MQTT ni siquiera cruzaba la red). Esta carpeta es la separación real,
 en la topología que ya mostraba el diagrama de arquitectura del README.
 
+## Configuración
+
+Lo que varía por despliegue (la IP de la Pi, el puerto) va en un `.env` en esta carpeta —
+**Docker Compose lo lee solo**, sin exportar nada a mano:
+
+```bash
+cp .env.example .env
+# editar .env con la IP real de la Pi
+```
+
+| Variable | Para qué | Default |
+|---|---|---|
+| `ECOSORT_BROKER` | IP de la Pi (Mosquitto corre ahí) | `192.168.20.1` |
+| `ECOSORT_VIDEO` | De dónde sirve el video `ecosort_pi.py --video` (la Pi, no este host) | `http://192.168.20.1:8000/stream` |
+| `DASHBOARD_PORT` | Puerto del panel en este host | `8080` |
+| `MQTT_PORT` | Solo para `docker-compose.dev.yml` (el broker local) | `1883` |
+
+`.env` es de cada despliegue, no del repo (gitignored) — `.env.example` sí se versiona, como
+plantilla. Sin `.env`, Compose usa los defaults de arriba (ya escritos en `docker-compose.yml`).
+Una variable exportada a mano (`ECOSORT_BROKER=<ip> docker compose up -d`) sigue funcionando y
+gana sobre el `.env` — cómoda para probar una IP una sola vez sin editar el archivo.
+
 ## Uso con Docker Compose
 
 ```bash
 cd host
-
-# contra la Pi (192.168.20.1 por defecto)
-docker compose up -d --build
-ECOSORT_BROKER=<otra-ip> docker compose up -d      # si la red es otra
+docker compose up -d --build    # lee .env si existe; si no, los defaults de arriba
 
 docker compose logs -f          # ver qué hacen adapter y dashboard
 docker compose down             # frena todo; los datos quedan (volumen eventos-data)
 docker compose down -v          # ...y BORRA los datos
 ```
 
-Abrir `http://localhost:8080` (o `DASHBOARD_PORT=9090 docker compose up -d`
-para otro puerto). Variables: `ECOSORT_BROKER` (IP de la Pi), `ECOSORT_VIDEO`
-(por defecto `http://192.168.20.1:8000/stream`, el video lo sirve la Pi, no
-este host).
+Abrir `http://localhost:8080` (o el `DASHBOARD_PORT` que hayas puesto en `.env`).
 
 **Sin la Pi** (para trabajar en el dashboard, el adapter o el contrato):
 
@@ -67,6 +83,9 @@ Desktop (Windows/Mac). Para sacar los datos, el botón *Descargar datos (CSV)*
 del dashboard.
 
 ## Sin Docker (para depurar)
+
+Acá no hay Compose de por medio, así que el `.env` de arriba no aplica — las mismas variables se
+exportan a mano:
 
 ```bash
 pip install -r adapter/requirements.txt -r dashboard/backend/requirements.txt
