@@ -28,8 +28,9 @@ depender de que las otras estén listas. El porqué de las decisiones está en l
   se cae sin despedirse (Last Will).
 - `vivo` es solo para el dashboard: `{presente, estado, clase, clase_modelo, confianza, contado, motivo}`
   más `dispositivo_id` y `ts`. `estado` es `libre`, `asentando` (algo apareció y se espera que quede quieto)
-  o `esperando_retiro`; `clase` solo viene cuando el objeto fue aceptado; `motivo` explica por qué se descartó
-  o quedó incierto. Usa el mismo vocabulario de clases que los eventos.
+  o `esperando_retiro`; `clase` viene cuando se publicó un evento (aceptado o incierto, y en ese caso ya es
+  `organico`, no la etiqueta cruda); `motivo` explica por qué se descartó o quedó incierto. Usa el mismo
+  vocabulario de clases que los eventos.
 - Los clientes del host usan sesión persistente (`clean_session=False`) con `client_id` fijo
   (`ecosort-adapter`, `ecosort-dashboard`), así el broker les guarda lo que llegue mientras están
   caídos. **Dos instancias con el mismo `client_id` se desconectan entre sí**: si algún día hay más de
@@ -48,8 +49,22 @@ depender de que las otras estén listas. El porqué de las decisiones está en l
   "confianza": 0.9312,
   "compuerta": 1,
   "accionado": false,
+  "motivo": null,
   "latencia_ms": 31.2,
   "modelo": "ecosort_int8.tflite"
+}
+```
+
+Un evento **incierto** (ver más abajo) es igual, salvo que `clase` queda forzada a `organico` y `motivo`
+no es `null`:
+
+```json
+{
+  "clase": "organico",
+  "clase_modelo": "cardboard",
+  "confianza": 0.52,
+  "compuerta": 4,
+  "motivo": "baja_confianza"
 }
 ```
 
@@ -66,6 +81,7 @@ depender de que las otras estén listas. El porqué de las decisiones está en l
 | `accionado` | booleano | sí | `true` si la salida física de esa compuerta se activó: un LED en octubre, el servo desde noviembre. **Es `false` mientras no exista el firmware.** |
 | `latencia_ms` | número o `null` | no | Tiempo de inferencia del último frame. **No es captura-a-compuerta**, así que no sirve todavía para el requisito de 2 a 4 segundos. |
 | `modelo` | texto o `null` | no | Identificador del modelo. Hoy es la ruta del `.tflite`, no una versión. |
+| `motivo` | `"baja_confianza"` \| `"inconsistente"` \| `null` | no | Solo si el evento es incierto (ver abajo); `null` en un evento genuino. |
 
 Los campos que el consumidor no conoce se ignoran, así que agregar campos opcionales no rompe a nadie.
 
@@ -92,13 +108,19 @@ descarte **no tiene clase de producto, no abre ninguna compuerta y nunca se publ
 descarta antes de publicar (ver la [ADR 0009](adr/0009-deteccion-en-cascada-y-rechazo.md)), así que no
 ensucia los eventos ni la base. La clase se entrena con negativos; el modelo actual todavía no la tiene.
 
-Hay tres resultados posibles al analizar un objeto: **aceptado** (se publica el evento), **incierto** (parece
-un residuo pero no se sabe cuál) y **descartado** (no es un residuo, o no se pudo analizar). Los dos últimos
-no generan evento.
+Hay tres resultados posibles al analizar un objeto: **aceptado** (se publica el evento con la clase que
+detectó el modelo), **incierto** (parece un residuo pero no se sabe cuál: se publica igual, ver abajo) y
+**descartado** (no es un residuo, o no se pudo analizar: no genera evento).
 
-**Todavía no implementado:** la ADR 0002 dice que una clasificación de baja confianza abre la compuerta
-de orgánico. Ese caso es `incierto`, y hoy no genera evento: decidir cómo se expresa (¿`organico` con un
-motivo?) es parte del firmware.
+**Incierto → orgánico** (ADR 0002): un objeto `incierto` **sí publica un evento**, igual que uno `aceptado`, pero
+`armar_evento` (`raspberry/ecosort_mqtt.py`) le fuerza `clase: "organico"` — comparte compuerta y contenedor
+con la baja confianza, a costa de la pureza de ese contenedor (trade-off documentado, no un error) — y deja
+`clase_modelo` con lo que de verdad vio el modelo, para poder evaluarlo aunque el evento cuente como
+orgánico. `motivo` distingue el porqué: `baja_confianza` (el promedio de probabilidades no llegó al umbral)
+o `inconsistente` (los cuadros no coincidieron entre sí). El adapter rechaza cualquier evento con `motivo`
+que no venga con `clase: "organico"`: protege contra un publisher desalineado que arme el evento a mano.
+Un `descartado` (no es un residuo, o no se dieron las condiciones para analizarlo) sigue sin generar
+evento.
 
 ## Validación y rechazos
 
@@ -111,8 +133,9 @@ SELECT ts_recepcion, motivo, payload FROM eventos_rechazados ORDER BY id DESC LI
 ```
 
 Se rechaza: un payload que no es JSON, una clase fuera del vocabulario, una confianza no numérica o fuera
-de 0 a 1, una compuerta fuera de 1 a 5, un campo obligatorio ausente, un `schema_version` distinto de 1, y
-un `dispositivo_id` que no coincide con el del tópico.
+de 0 a 1, una compuerta fuera de 1 a 5, un campo obligatorio ausente, un `schema_version` distinto de 1, un
+`dispositivo_id` que no coincide con el del tópico, un `motivo` fuera de `baja_confianza`/`inconsistente`/
+`null`, y un `motivo` no nulo cuya `clase` no sea `organico`.
 
 ## Cómo evoluciona
 
@@ -151,8 +174,9 @@ scp -r schema <usuario>@<ip-de-la-pi>:~/ecosort
 
 ## Abierto
 
-- Baja confianza (`incierto`) → compuerta de orgánico (ver arriba).
 - Persistir los descartes como telemetría, para medir la tasa de falsos (por ejemplo un tópico `descartes` y
   una tabla aparte, nunca en `eventos`). Hoy se ven solo en `vivo` y en el log de la Pi.
 - `accionado` real: depende del firmware (LEDs en octubre, servos en noviembre).
 - `modelo` como versión, y una latencia captura-a-compuerta, si se quiere medir el requisito de tiempo.
+- Medir la pureza real del contenedor de orgánico (cuánto de lo que cae ahí es incierto y no orgánico
+  genuino) una vez que haya volumen de eventos — es la contraparte de negocio del trade-off de la ADR 0002.

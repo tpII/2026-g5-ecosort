@@ -40,9 +40,10 @@ procesando imágenes todo el tiempo. Se midió antes de decidir:
    probabilidad aunque no gane, el objeto se descarta: **no abre ninguna compuerta y nunca se publica como
    evento**, así que no ensucia los mensajes ni la base.
 3. **Tres resultados, no dos**: `aceptado` (es un residuo y se sabe cuál: se publica el evento), `incierto`
-   (parece un residuo pero no se sabe cuál: baja confianza, cuadros que no coinciden) y `descartado` (no es un
-   residuo, o no se dieron las condiciones para analizarlo). La ADR 0002 dice que la baja confianza abre la
-   compuerta de orgánico; ese caso es `incierto` y sigue pendiente de decidir (hoy no genera evento).
+   (parece un residuo pero no se sabe cuál: baja confianza, cuadros que no coinciden — **también publica el
+   evento**, forzado a la clase `organico` por la ADR 0002, con `motivo` para distinguirlo de un `organico`
+   genuino: ver `docs/contrato-mqtt.md`) y `descartado` (no es un residuo, o no se dieron las condiciones para
+   analizarlo: no genera evento).
 4. **Las señales de la máquina son la interfaz para el firmware**: `presente`, `transito`, `aceptado`,
    `incierto`, `descartado` (con su motivo), `retirado` y `no_retirado`. Con ellas se pueden hacer las luces y
    los sonidos que le den expresión a la papelera (tabla abajo). Tras `aceptado`, `retirado` significa que

@@ -21,8 +21,11 @@ import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import paho.mqtt.client as mqtt
+
+import estadisticas
 
 BROKER = os.getenv("ECOSORT_BROKER", "localhost")
 PUERTO = int(os.getenv("ECOSORT_PUERTO", "8080"))
@@ -48,6 +51,12 @@ clientes_lock = threading.Lock()
 estado_dispositivos = {}      # ecosort-01 -> "online" / "offline"
 
 
+def _un(qs, clave):
+    """Un query param de a uno (parse_qs los devuelve como listas). None si no vino."""
+    valores = qs.get(clave)
+    return valores[0] if valores else None
+
+
 def difundir(tipo, datos):
     msg = f"event: {tipo}\ndata: {json.dumps(datos, ensure_ascii=False)}\n\n".encode()
     with clientes_lock:
@@ -64,9 +73,21 @@ def resumen():
         por_clase = {r["clase"]: r["n"] for r in
                      db.execute("SELECT clase, COUNT(*) AS n FROM eventos GROUP BY clase")}
         ultimos = [dict(r) for r in db.execute(
-            "SELECT clase, confianza, ts_recepcion FROM eventos ORDER BY id DESC LIMIT 15")]
+            "SELECT clase, confianza, motivo, ts_recepcion FROM eventos ORDER BY id DESC LIMIT 15")]
     return {"total": total, "por_clase": por_clase, "ultimos": ultimos,
             "estado": estado_dispositivos}
+
+
+# columnas que necesita estadisticas.py (host/dashboard/backend/estadisticas.py): cantidad, tiempos
+# y patrones de uso para graficar (no la observabilidad de infraestructura, eso es Prometheus/Grafana,
+# ADR 0004/0005, un objetivo aparte). Se trae todo y se filtra/agrupa en Python (estadisticas.py):
+# para el volumen de eventos de este proyecto alcanza, y evita depender de cómo cada versión de
+# SQLite interpreta el offset de ts_recepcion al agrupar por fecha.
+def _filas_eventos():
+    with db_lock:
+        return [dict(r) for r in db.execute(
+            "SELECT clase, confianza, motivo, latencia_ms, accionado, dispositivo_id, ts_recepcion "
+            "FROM eventos")]
 
 
 # ---------------------------------------------------------------- MQTT (solo relay, no inserta)
@@ -121,13 +142,20 @@ def iniciar_mqtt():
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        ruta = self.path.split("?")[0]
+        partes = urlparse(self.path)
+        ruta, qs = partes.path, parse_qs(partes.query)
         if ruta == "/":
             html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
             html = html.replace("__VIDEO_URL__", json.dumps(VIDEO_URL))
             self._enviar(200, "text/html; charset=utf-8", html.encode())
         elif ruta == "/api/resumen":
             self._json(resumen())
+        elif ruta == "/api/estadisticas/resumen":
+            self._estadisticas(qs, estadisticas.resumen)
+        elif ruta == "/api/estadisticas/dispositivos":
+            self._estadisticas(qs, estadisticas.dispositivos)
+        elif ruta == "/api/estadisticas/serie":
+            self._estadisticas(qs, lambda filas: estadisticas.serie(filas, _un(qs, "agrupar") or "dia"))
         elif ruta == "/api/stream":
             self._sse()
         elif ruta == "/api/descargar.csv":
@@ -159,6 +187,18 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, datos):
         self._enviar(200, "application/json; charset=utf-8",
                      json.dumps(datos, ensure_ascii=False).encode())
+
+    def _estadisticas(self, qs, agregar):
+        """agregar: una de las funciones puras de estadisticas.py (o un lambda que la envuelve,
+        para 'serie', que necesita el parámetro 'agrupar'). Filtra por desde/hasta/dispositivo
+        (query params, todos opcionales) antes de agregar."""
+        try:
+            filas = estadisticas.filtrar(_filas_eventos(), desde=_un(qs, "desde"), hasta=_un(qs, "hasta"),
+                                         dispositivo=_un(qs, "dispositivo"))
+            self._json(agregar(filas))
+        except ValueError as e:
+            # 'agrupar' inválido, o una fecha que no es ISO 8601: error del cliente, no del servidor
+            self._enviar(400, "text/plain; charset=utf-8", str(e).encode())
 
     def _csv(self):
         with db_lock:

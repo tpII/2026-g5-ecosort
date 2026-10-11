@@ -146,6 +146,32 @@ class LoQuePublicaLaPi(unittest.TestCase):
         self.assertNotEqual(a["evento_id"], b["evento_id"])
 
 
+class Incierto(unittest.TestCase):
+    """ADR 0002 (baja confianza abre la compuerta de orgánico) + ADR 0009 (dos motivos posibles)."""
+
+    def test_un_evento_incierto_se_fuerza_a_organico_sin_perder_lo_que_vio_el_modelo(self):
+        validador = Draft202012Validator(ESQUEMA)
+        for motivo in ("baja_confianza", "inconsistente"):
+            evento = ecosort_mqtt.armar_evento("ecosort-01", "glass", 0.5, motivo=motivo)
+            self.assertEqual(list(validador.iter_errors(evento)), [], motivo)
+            self.assertEqual((evento["clase"], evento["compuerta"], evento["clase_modelo"], evento["motivo"]),
+                             ("organico", CLASES["compuertas"]["organico"], "glass", motivo))
+
+    def test_un_motivo_que_no_es_de_incierto_se_rechaza_antes_de_publicar(self):
+        with self.assertRaises(ValueError):
+            ecosort_mqtt.armar_evento("ecosort-01", "glass", 0.5, motivo="tamano")  # es de descartado, no de incierto
+
+    def test_un_evento_genuino_no_lleva_motivo(self):
+        evento = ecosort_mqtt.armar_evento("ecosort-01", "glass", 0.9)
+        self.assertIsNone(evento["motivo"])
+
+    def test_un_evento_con_motivo_pero_sin_forzar_organico_se_rechaza_por_schema(self):
+        # lo que armar_evento nunca produciría: protege contra un publisher desalineado
+        validador = Draft202012Validator(ESQUEMA)
+        evento = evento_valido(motivo="baja_confianza", clase="vidrio")
+        self.assertNotEqual(list(validador.iter_errors(evento)), [])
+
+
 class LoQueAceptaElAdapter(unittest.TestCase):
     def setUp(self):
         with adapter.db_lock:
@@ -164,6 +190,13 @@ class LoQueAceptaElAdapter(unittest.TestCase):
         fila = adapter.db.execute(
             "SELECT schema_version, clase, clase_modelo, compuerta, accionado FROM eventos").fetchone()
         self.assertEqual(fila, (1, "vidrio", "glass", 3, 0))
+        self.assertEqual(self._n("eventos_rechazados"), 0)
+
+    def test_un_evento_incierto_se_guarda_como_organico_con_su_motivo(self):
+        e = ecosort_mqtt.armar_evento("ecosort-01", "glass", 0.5, motivo="baja_confianza")
+        self._procesar(e)
+        fila = adapter.db.execute("SELECT clase, clase_modelo, motivo FROM eventos").fetchone()
+        self.assertEqual(fila, ("organico", "glass", "baja_confianza"))
         self.assertEqual(self._n("eventos_rechazados"), 0)
 
     def test_un_evento_repetido_no_se_cuenta_dos_veces(self):
@@ -186,6 +219,8 @@ class LoQueAceptaElAdapter(unittest.TestCase):
             "ts sin formato": evento_valido(ts="ayer"),
             "accionado no booleano": evento_valido(accionado="si"),
             "no es un objeto": ["plastico"],
+            "motivo que no es de incierto": evento_valido(motivo="tamano"),
+            "incierto sin forzar organico": evento_valido(motivo="baja_confianza", clase="vidrio"),
         }
         for nombre, evento in casos.items():
             antes = self._n("eventos_rechazados")

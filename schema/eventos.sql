@@ -1,6 +1,6 @@
 -- schema/eventos.sql — persistencia del contrato de eventos (docs/contrato-mqtt.md, ADR 0008).
 -- Las columnas agregadas después de la primera versión (schema_version, clase_modelo,
--- accionado) las suma a una base ya existente host/adapter/adapter.py (migrar()).
+-- accionado, motivo) las suma a una base ya existente host/adapter/adapter.py (migrar()).
 
 CREATE TABLE IF NOT EXISTS eventos (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS eventos (
     confianza       REAL,
     compuerta       INTEGER,                  -- 1 plastico, 2 papel, 3 vidrio, 4 organico, 5 metal
     accionado       INTEGER NOT NULL DEFAULT 0, -- 1 si la salida física (LED/servo) se activó
+    motivo          TEXT,                     -- solo si es incierto (ADR 0002): baja_confianza | inconsistente
     latencia_ms     REAL,
     modelo          TEXT,
     ts_dispositivo  TEXT,                     -- reloj de la Pi (puede estar mal: sin RTC ni NTP)

@@ -1,0 +1,28 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 2. Se asume que la Pi tiene internet en este momento
+# (todavía no hay modo Access Point implementado, ver pi.yml).
+
+- name: Instalar Mosquitto y las herramientas cliente
+  become: true
+  ansible.builtin.apt:
+    name: [mosquitto, mosquitto-clients, python3-paho-mqtt]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Copiar la configuración de Mosquitto (fuente única raspberry/mosquitto/ecosort.conf)
+  become: true
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../raspberry/mosquitto/ecosort.conf"
+    dest: /etc/mosquitto/conf.d/ecosort.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reiniciar mosquitto
+
+- name: Habilitar y arrancar Mosquitto
+  become: true
+  ansible.builtin.systemd:
+    name: mosquitto
+    enabled: true
+    state: started

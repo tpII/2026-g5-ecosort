@@ -1,0 +1,21 @@
+---
+# docs/guia-instalacion-raspberry.md, paso 8. No corre en una instalación normal (tag "never"):
+# solo con `ansible-playbook pi.yml --tags verificar`, porque tarda y no cambia nada.
+
+- name: Bench del modelo int8
+  ansible.builtin.command: "{{ ecosort_venv }}/bin/python inferencia_pi.py modelo/{{ ecosort_modelo }} --bench"
+  args:
+    chdir: "{{ ecosort_dir }}/raspberry"
+  register: ecosort_bench
+  changed_when: false
+
+- name: Temperatura y throttling
+  ansible.builtin.command: "{{ item }}"
+  loop: [vcgencmd measure_temp, vcgencmd get_throttled]
+  register: ecosort_vcgencmd
+  changed_when: false
+  failed_when: false   # vcgencmd no existe fuera de una Raspberry Pi real
+
+- name: Resultado
+  ansible.builtin.debug:
+    msg: "{{ [ecosort_bench.stdout] + (ecosort_vcgencmd.results | map(attribute='stdout') | list) }}"

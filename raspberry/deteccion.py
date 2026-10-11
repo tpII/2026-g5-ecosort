@@ -19,8 +19,10 @@ caro:
 
 La decisión es una de tres, y se toma una sola vez por objeto:
   aceptado     es un residuo y se sabe cuál: la Pi publica el evento
-  incierto     parece un residuo pero no se sabe cuál (baja confianza, cuadros que no coinciden)
-  descartado   no es un residuo, o no se dieron las condiciones para analizarlo
+  incierto     parece un residuo pero no se sabe cuál (baja confianza, cuadros que no coinciden):
+               la Pi también publica el evento, pero forzado a la clase 'organico' (ADR 0002 +
+               0008): comparte contenedor con la baja confianza, a costa de su pureza
+  descartado   no es un residuo, o no se dieron las condiciones para analizarlo: no se publica nada
 
 Después espera a que la plataforma quede libre. Eso da, además, las señales que el firmware puede
 convertir en luces y sonidos ("objeto no reconocido", "cayó", "se trabó"): ver `Resultado.senales`.
@@ -33,6 +35,9 @@ from enum import Enum
 from typing import Optional
 
 import numpy as np
+
+
+MOTIVOS_INCIERTO = ("baja_confianza", "inconsistente")  # Decision.motivo cuando tipo == "incierto"
 
 
 class Estado(Enum):
@@ -97,7 +102,7 @@ class Resultado:
 #   ("presente", None)                  llegó algo
 #   ("transito", None)                  se fue antes de quedarse quieto (alguien que pasó)
 #   ("aceptado", etiqueta)              reconocido: se abre la compuerta
-#   ("incierto", motivo)                parece un residuo pero no se sabe cuál
+#   ("incierto", motivo)                parece un residuo pero no se sabe cuál (se publica igual, a organico)
 #   ("descartado", motivo)              no es un residuo / no se pudo analizar ("objeto no reconocido")
 #   ("retirado", tipo_de_decision)      la plataforma quedó libre; tras "aceptado" = cayó
 #   ("no_retirado", tipo_de_decision)   sigue ocupada pasado el tiempo; tras "aceptado" = se trabó
