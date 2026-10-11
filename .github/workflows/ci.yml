@@ -115,10 +115,10 @@ jobs:
       - name: tests_de_deteccion
         run: python -m unittest discover -s raspberry/tests -v
 
-  # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
-  # formato de los PDFs de docs/entregas/ que cambian respecto de la rama destino (los de esa entrega).
-  # Usa la skill formato-entregas del repo de la cátedra, que se trae con un checkout (no se copia acá). Falla por
-  # fuente, tamaño e interlineado; el resto queda como aviso en el resumen del job.
+    # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
+  # formato de los PDFs de docs/entregas/ que cambian respecto de la rama destino (los de esa entrega) con
+  # prolijito y el perfil .github/prolijito/ecosort-entrega.yaml: falla por fuente, tamaño e interlineado;
+  # el resto queda como aviso en las anotaciones y en el resumen del job.
   entrega:
     if: startsWith(github.base_ref, 'entrega_')
     runs-on: ubuntu-latest
@@ -139,32 +139,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ref main porque quiero la latest, asumo que el profe y/o claudio no lo romperán pq son re cracks
-      - name: guias_de_la_catedra
-        uses: actions/checkout@v4
-        with:
-          repository: tpII/ia-guidelines-taller
-          ref: main
-          path: .guias
-
-      - name: instalar_poppler
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
-
-      - name: tests_del_chequeo
-        run: python3 -m unittest discover -s .github/scripts/formato-entregas -v
+      # PDFs de docs/entregas/ que agrega o modifica este PR respecto de la rama destino
+      - name: pdfs_de_la_entrega
+        id: pdfs
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          {
+            echo "lista<<EOF"
+            git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- 'docs/entregas/*.pdf'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: chequear_formato
-        run: >
-          python3 .github/scripts/formato-entregas/check_entrega.py
-          --analizador .guias/skills/formato-entregas/scripts/analizar_pdf.py
-          --base origin/${{ github.base_ref }}
+        if: steps.pdfs.outputs.lista != ''
+        uses: festradax07/prolijito@v0.1.0
+        with:
+          profile: ecosort-entrega
+          profiles-dir: .github/prolijito
+          path: ${{ steps.pdfs.outputs.lista }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: chequeo-formato
-          path: entregas-chequeo/
+          path: prolijito-reportes/
           if-no-files-found: ignore
+
 
   # infra/ansible/ (empaquetado de la instalación de la Pi): nada de esto corre contra hardware
   # real (eso se valida a mano y se registra en BITACORA.md), solo sintaxis y la plantilla del
