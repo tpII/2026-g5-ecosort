@@ -4,7 +4,6 @@ __pycache__/
 .venv/
 
 CLAUDE.md
-docs/2026-g5-ecosort.code-workspace
 
 # vision — artefactos de entrenamiento (modelos, checkpoints, .tflite)
 vision/runs/
@@ -14,13 +13,3 @@ vision/runs/
 !raspberry/modelo/*.tflite
 eventos.db
 *.log
-
-# salida local de check_entrega.py
-entregas-chequeo/
-
-# inventario real de Ansible (IP y usuario de cada despliegue, no del repo)
-infra/ansible/inventory/hosts.yml
-infra/ansible/*.retry
-
-# config real de cada despliegue del host (IP de la Pi, puertos) — ver host/.env.example
-host/.env
