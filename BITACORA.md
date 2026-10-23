@@ -106,31 +106,30 @@
 
 Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no de código.
 
-- Se armó el circuito de alimentación (dos fuentes separadas, GND común) y se probaron los cuatro
-  servos SG90 conectados a la Raspberry Pi.
+- Se armó el circuito de alimentación (dos fuentes separadas, GND común) y se probaron los cuatro servos SG90 conectados a la Raspberry Pi.
 - **Problemas con la fuente de alimentación**: Tuvimos problemas para utilizar la fuente de alimentacion ATX modificada proporcionada por la catedra.
-  Pendiente de registrar acá el detalle de la causa y la solución una vez confirmada (ver sección de
-  alimentación del Informe de Avance 2 para el dimensionamiento previsto).
+  Pendiente de registrar acá el detalle de la causa y la solución una vez confirmada (ver sección de alimentación del Informe de Avance 2 para el dimensionamiento previsto).
 
 ## [2026-10-23] - Semana 9
 
 ### Avances del proyecto
 - README y BITACORA puestos al día: pendientes resueltos sacados de la lista, semanas 6 a 9 agregadas.
 
+- Se logro solucionar el problema con la fuente ATX. Resulta que el cable de alimentacion se encontraba fallado, prendia solo por instantes y se apagaba. El profesor Fernando me dio uno nuevo y funciono correctamente (David).
+
+- Se probo los servos conectados a la Raspberry Pi nuevamente, esta vez a travez de la fuente ATX (David). 
+
+- Se realizaron test de manera local con los servos, de pruebas, esto no fue subido al github (David).
+
+- Desarrollo y pruebas de hardware: Se avanzó en el código de control de los servomotores y se validó con éxito su integración con la cámara: al detectar un objeto metálico, se activa el servomotor correspondiente a dicha categoría (David y Micaela).
+
+- Documentación y soporte: Se redactó y subió la documentación para utilizar el proyecto con el nuevo material, incluyendo una guía de posibles soluciones a los problemas detectados durante las pruebas (Micaela).
+
+- Material audiovisual: Se subió material gráfico y videos demostrativos que evidencian el funcionamiento del sistema (Micaela).
+
 ### Pendientes
-- Registrar en detalle el problema de la fuente de alimentación de la Semana 7 y 8, y su solución.
-- Incorporar `servos.py` al repositorio (`raspberry/`) — según el Informe de Avance 2, el código existe
-  pero todavía no está commiteado.
+- Incorporar `servos.py` al repositorio (`raspberry/`) — según el Informe de Avance 2, el código existe pero todavía no está commiteado.
 - Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.
 - Correr el playbook de Ansible contra una Pi real.
 - Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
 - El resto de lo que ya venía pendiente de la Semana 4 (negativos para `ninguno`, calibración de umbrales, firmware, quinta compuerta, comparación de backbones) sigue abierto.
-
-**Semana 3**
-
-Además de las tareas planificadas, se incorporan los siguientes **avances por equipo**:
-
-* **Mica:**
-* **Desarrollo y pruebas de hardware:** Se avanzó en el código de control de los servomotores y se validó con éxito su integración con la cámara: al detectar un objeto metálico, se activa el servomotor correspondiente a dicha categoría.
-* **Documentación y soporte:** Se redactó y subió la documentación para utilizar el proyecto con el nuevo material, incluyendo una guía de posibles soluciones a los problemas detectados durante las pruebas.
-* **Material audiovisual:** Se subió material gráfico y videos demostrativos que evidencian el funcionamiento del sistema.
