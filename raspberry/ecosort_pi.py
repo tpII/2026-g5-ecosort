@@ -2,6 +2,9 @@
 
     python ecosort_pi.py --modelo ecosort_int8.tflite           # detecta, cuenta y publica
     python ecosort_pi.py --modelo ecosort_int8.tflite --video   # además video en http://<pi>:8000
+    python ecosort_pi.py --modelo ecosort_int8.tflite --servos  # además abre la compuerta que corresponde
+    python ecosort_pi.py --modelo ecosort_int8.tflite --solo-metal   # UN servo: se mueve solo si ve metal
+    python ecosort_pi.py --modelo ecosort_int8.tflite --solo-metal --pin-servo 22   # servo en GPIO22 (pin 15)
 
 IMPORTANTE: al arrancar, la cámara tiene que ver la escena VACÍA unos 2 segundos.
 Ahí aprende cómo es el fondo; después cuenta UN evento por cada objeto que aparece,
@@ -12,7 +15,7 @@ Tópicos MQTT que publica:
     ecosort/<id>/eventos  -> un mensaje por residuo contado (QoS 1)
 
 Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, labels.txt
-(y vista_en_vivo.py si se usa --video).
+(vista_en_vivo.py si se usa --video, y servos.py si se usa --servos).
 """
 
 import argparse
@@ -32,6 +35,16 @@ FRAMES_PRESENTE = 3     # cuadros seguidos con cambio para marcar que llegó un 
 FRAMES_AUSENTE = 8      # cuadros seguidos sin cambio para darlo por retirado
 MAX_PRESENTE_S = 30     # si "hay algo" más de esto, se asume que cambió el fondo y se recalibra
 DIF_PIXEL = 30          # diferencia de gris (0-255) para considerar que un píxel cambió
+
+# Clase del modelo -> número de compuerta (ver servos.py). None = sin compuerta todavía.
+# TrashNet no tiene "orgánico": la compuerta 4 queda sin usar hasta tener un dataset propio.
+COMPUERTA = {
+    "plastic": 1, "plastico": 1,
+    "paper": 2, "cardboard": 2, "papel": 2,
+    "glass": 3, "vidrio": 3,
+    "organico": 4,
+    "metal": None, "trash": None,
+}
 
 
 class Fondo:
@@ -60,8 +73,9 @@ class Fondo:
 
 
 class Detector:
-    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False):
+    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False, compuertas=None):
         self.clf, self.pub, self.modelo, self.video = clf, pub, modelo, video
+        self.compuertas = compuertas
         self.periodo = 1.0 / fps
         self.cap = cv2.VideoCapture(cam_id, cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -134,8 +148,11 @@ class Detector:
                 if (not contado and len(ult) == FRAMES_ESTABLE and ult[0][0] is not None
                         and all(c == ult[0][0] for c, _ in ult)):
                     conf_media = sum(p for _, p in ult) / len(ult)
-                    self.pub.publicar_evento(ult[0][0], conf_media, compuerta=None,
+                    compuerta = COMPUERTA.get(ult[0][0])
+                    self.pub.publicar_evento(ult[0][0], conf_media, compuerta=compuerta,
                                              latencia_ms=round(ms, 1), modelo=self.modelo)
+                    if self.compuertas and compuerta:
+                        self.compuertas.abrir(compuerta)   # no bloquea: corre en otro hilo
                     contado = True
                     total += 1
                     print(f"[{total}] contado: {ult[0][0]} ({conf_media:.0%})")
@@ -176,13 +193,29 @@ if __name__ == "__main__":
     ap.add_argument("--modelo", required=True)
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--video", action="store_true", help="servir el video en el puerto 8000")
+    ap.add_argument("--servos", action="store_true", help="mover las compuertas (servos por GPIO)")
+    ap.add_argument("--solo-metal", action="store_true",
+                    help="un solo servo, que se mueve únicamente cuando se detecta metal (implica --servos)")
+    ap.add_argument("--pin-servo", type=int, default=17,
+                    help="GPIO (BCM) del servo con --solo-metal. 17=pin 11, 27=pin 13, 22=pin 15, 23=pin 16")
     ap.add_argument("--broker", default="localhost")
     ap.add_argument("--dispositivo", default="ecosort-01")
     args = ap.parse_args()
 
     clf = Clasificador(args.modelo)
     pub = EcoSortMQTT(dispositivo_id=args.dispositivo, host=args.broker)
-    det = Detector(clf, pub, args.modelo, args.cam, video=args.video)
+    compuertas = None
+    if args.solo_metal:
+        # Un solo servo (compuerta 1) y solo para "metal": el resto se cuenta y se publica, pero no mueve nada.
+        COMPUERTA.clear()
+        COMPUERTA["metal"] = 1
+        import servos
+        servos.NOMBRES = {1: "metal"}
+        compuertas = servos.Compuertas(pines={1: args.pin_servo})
+    elif args.servos:
+        from servos import Compuertas
+        compuertas = Compuertas()
+    det = Detector(clf, pub, args.modelo, args.cam, video=args.video, compuertas=compuertas)
 
     if args.video:
         from http.server import ThreadingHTTPServer
@@ -199,3 +232,5 @@ if __name__ == "__main__":
         pass
     finally:
         pub.cerrar()
+        if compuertas:
+            compuertas.cerrar()
