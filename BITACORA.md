@@ -127,8 +127,9 @@ Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no d
 
 - Material audiovisual: Se subió material gráfico y videos demostrativos que evidencian el funcionamiento del sistema (Micaela).
 
+- Se incorporó `servos.py` al repositorio (`raspberry/`) — según el Informe de Avance 2. Dicho script se encuentra en la Rama `Mica`. 
+
 ### Pendientes
-- Incorporar `servos.py` al repositorio (`raspberry/`) — según el Informe de Avance 2, el código existe pero todavía no está commiteado.
 - Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.
 - Correr el playbook de Ansible contra una Pi real.
 - Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
