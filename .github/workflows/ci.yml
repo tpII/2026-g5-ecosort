@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       vision: ${{ steps.filter.outputs.vision }}
+      host: ${{ steps.filter.outputs.host }}
+      contrato: ${{ steps.filter.outputs.contrato }}
+      ansible: ${{ steps.filter.outputs.ansible }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -18,7 +21,16 @@ jobs:
           filters: |
             vision:
               - 'vision/**'
-              - 'software_detección/TrashNate/Data/**'
+            host:
+              - 'host/**'
+            contrato:
+              - 'schema/**'
+              - 'raspberry/**'
+              - 'host/adapter/**'
+              - 'host/dashboard/frontend/**'
+              - 'vision/classes.py'
+            ansible:
+              - 'infra/ansible/**'
 
   vision:
     needs: changes
@@ -33,29 +45,157 @@ jobs:
       - name: lint_check
         run: |
           docker run --rm ecosort-vision -m py_compile \
-            dataset.py train.py classes.py evaluate.py export_tflite.py webcam_test.py
+            dataset.py models.py train.py classes.py evaluate.py export_tflite.py webcam_test.py
 
       - name: smoke_test
         run: |
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision train.py \
-              --data-dir /data/software_detección/TrashNate/Data/archive/dataset-resized \
               --img-size 96 --head-epochs 1 --finetune-epochs 1 --finetune-layers 5 \
               --out-dir runs/ci-smoke
 
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision evaluate.py --run-dir runs/ci-smoke
 
           docker run --rm \
-            -v "$PWD/software_detección:/data/software_detección:ro" \
+            -v "$PWD/vision/data:/app/data:ro" \
             -v "$PWD/vision/runs:/app/runs" \
             ecosort-vision export_tflite.py --run-dir runs/ci-smoke
+
+  host:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: lint_check
+        run: |
+          python3 -m py_compile host/adapter/adapter.py host/dashboard/backend/backend.py \
+            host/dashboard/backend/estadisticas.py
+
+      # agregaciones de /api/estadisticas/* (host/dashboard/backend/estadisticas.py): funciones
+      # puras, sin DB ni Docker
+      - name: tests_de_estadisticas
+        run: python3 -m unittest discover -s host/dashboard/backend -v
+
+      - name: compose_config
+        run: |
+          docker compose -f host/docker-compose.yml config -q
+          docker compose -f host/docker-compose.yml -f host/docker-compose.dev.yml config -q
+
+      # build de las imágenes + broker local + adapter + dashboard, sin Pi (ver el script)
+      - name: smoke_test
+        run: bash host/tests/e2e_smoke.sh
+
+  # el contrato de eventos (ADR 0008) y la detección (ADR 0009) cruzan schema/, raspberry/, host/adapter y
+  # vision/classes.py: corre si cambia cualquiera de esas piezas, no solo host/
+  contrato:
+    needs: changes
+    if: needs.changes.outputs.contrato == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install
+        run: pip install paho-mqtt jsonschema numpy
+
+      - name: tests_de_contrato
+        run: python -m unittest discover -s schema/tests -v
+
+      # la máquina de estados que decide cuándo y si analizar (ADR 0009): sin cámara ni modelo
+      - name: tests_de_deteccion
+        run: python -m unittest discover -s raspberry/tests -v
+
+  # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
+  # formato de los PDFs de docs/entregas/ que cambian respecto de la rama destino (los de esa entrega) con
+  # prolijito (https://github.com/festradax07/prolijito) y el perfil .github/prolijito/ecosort-entrega.yaml:
+  # falla por fuente, tamaño e interlineado; el resto queda como aviso en las anotaciones y en el resumen del job.
+  entrega:
+    if: startsWith(github.base_ref, 'entrega_')
+    runs-on: ubuntu-latest
+    steps:
+      - name: origen_main
+        env:
+          ORIGEN: ${{ github.head_ref }}
+          DESTINO: ${{ github.base_ref }}
+          REPO_ORIGEN: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$ORIGEN" != "main" ] || [ "$REPO_ORIGEN" != "${{ github.repository }}" ]; then
+            echo "::error::A $DESTINO solo se llega con un PR desde main de este repo (origen: $REPO_ORIGEN:$ORIGEN)."
+            exit 1
+          fi
+
+      # historia completa: hace falta para comparar contra la rama destino
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # PDFs de docs/entregas/ que agrega o modifica este PR respecto de la rama destino
+      - name: pdfs_de_la_entrega
+        id: pdfs
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          {
+            echo "lista<<EOF"
+            git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- 'docs/entregas/*.pdf'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: chequear_formato
+        if: steps.pdfs.outputs.lista != ''
+        uses: festradax07/prolijito@v0.3.1
+        with:
+          profile: ecosort-entrega
+          profiles-dir: .github/prolijito
+          path: ${{ steps.pdfs.outputs.lista }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chequeo-formato
+          path: prolijito-reportes/
+          if-no-files-found: ignore
+
+  # infra/ansible/ (empaquetado de la instalación de la Pi): nada de esto corre contra hardware
+  # real (eso se valida a mano y se registra en BITACORA.md), solo sintaxis y la plantilla del
+  # servicio systemd.
+  ansible:
+    needs: changes
+    if: needs.changes.outputs.ansible == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install
+        run: pip install ansible-core jinja2
+
+      - name: collections
+        run: ansible-galaxy collection install -r infra/ansible/requirements.yml
+
+      - name: syntax_check
+        run: |
+          cd infra/ansible
+          ansible-playbook pi.yml -i inventory/hosts.example.yml --syntax-check
+
+      - name: tests_de_la_plantilla_del_servicio
+        run: python -m unittest discover -s infra/ansible/tests -v
+
   ci-ok:
-    needs: [vision]
+    needs: [vision, host, contrato, entrega, ansible]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -63,6 +203,22 @@ jobs:
         run: |
           if [ "${{ needs.vision.result }}" = "failure" ]; then
             echo "vision falló"
+            exit 1
+          fi
+          if [ "${{ needs.host.result }}" = "failure" ]; then
+            echo "host falló"
+            exit 1
+          fi
+          if [ "${{ needs.contrato.result }}" = "failure" ]; then
+            echo "contrato falló"
+            exit 1
+          fi
+          if [ "${{ needs.entrega.result }}" = "failure" ]; then
+            echo "el formato de la entrega no cumple (ver el resumen del job entrega)"
+            exit 1
+          fi
+          if [ "${{ needs.ansible.result }}" = "failure" ]; then
+            echo "ansible falló"
             exit 1
           fi
           echo "ok"

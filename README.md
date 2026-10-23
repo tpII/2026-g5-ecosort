@@ -1,30 +1,38 @@
 # 2026-g5-ecosort — EcoSort
 
+![EcoSort — Clasificador de Residuos Inteligente](docs/banner.png)
+
+
 **Taller de Proyecto II 2026 — Grupo G5**
 
-Clasificador automático de residuos en 4 categorías (plástico, papel, vidrio,
-orgánico) basado en visión por computadora sobre Raspberry Pi 3, con un
-mecanismo físico de 4 compuertas y un pipeline de datos hacia un dashboard de
-monitoreo.
+Clasificador automático de residuos en 5 categorías (plástico, papel, vidrio,
+orgánico y metal) basado en visión por computadora sobre Raspberry Pi 3, con un
+mecanismo físico de 5 compuertas y un pipeline de datos hacia un dashboard de
+monitoreo propio.
 
-> **Estado del repositorio:** fin de Semana 2 — entrega del Plan de Proyecto y
-> primeros prototipos de código. Además de la documentación de arquitectura y
-> las ADRs, ya hay pruebas locales de modelos de clasificación
-> (`software_detección/TrashNate`) y el circuito de alimentación de hardware
-> definido.
+> **Estado del repositorio:** Semana 9 — pipeline funcionando de punta a punta: modelo (`vision/`,
+> MobileNetV2 desplegado y probado en la Pi real) → Raspberry Pi (`raspberry/`, captura +
+> detección en cascada + inferencia + MQTT) → host cliente/servidor (`host/`, adapter + dashboard
+> con API de estadísticas, procesos separados con Docker Compose). Contrato de eventos v1
+> (5 clases y 5 compuertas, ADR 0008) y clase `ninguno` para lo que no es un residuo (ADR 0009)
+> aceptados. Informe de Avance 2 entregado (11/10, `docs/entregas/entrega-2.pdf`); el CI de
+> formato pasó a usar [`prolijito`](https://github.com/festradax07/prolijito), herramienta propia
+> del equipo. Semanas 7 y 8 sin cambios de código: pruebas de hardware (servos, fuente de
+> alimentación) — ver BITACORA. Lo más reciente (`incierto`, estadísticas, Ansible) **todavía no se
+> probó contra la Pi real**, solo con tests y Docker. Roles del equipo repartidos por área (ver
+> tabla de Equipo).
 
 ---
 
 ## Equipo
 
-| Integrante | usuario |
-|---|---|
-| Francisco Estrada | `festradax07` |
-| Micaela Taini | `mikitalinda` |
-| David Alvarez | `davidalvarezok` |
+| Integrante | usuario | área |
+|---|---|---|
+| Francisco Estrada | `festradax07` | Backend y comunicación (MQTT, adaptador, schema, CI) |
+| Micaela Taini | `mikitalinda` | Modelo (`vision/`, datos, entrenamiento) |
+| David Alvarez | `davidalvarezok` | Firmware (servos/GPIO) y frontend del dashboard |
 
-Docente/cátedra: seguimiento de decisiones (ver ADRs con estado *Pendiente
-confirmar con el docente*).
+Docente/cátedra: Gastón Maron, seguimiento de decisiones vía los ADR de `docs/adr/`.
 
 ---
 
@@ -39,13 +47,13 @@ config:
 flowchart LR
      subgraph PI["🍓 Raspberry Pi 3 — modo Access Point · 192.168.20.1"]
         CAM["📷 <br/> Cámara USB"]
-        SERVOS["⚙️ <br/>Servos x4"]
-        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x4"]
+        SERVOS["⚙️ <br/>Servos x5"]
+        INF["🐍 <br/> INFERENCIA<br/>TFLite · control GPIO x5"]
         MOSQ["📡 <br/>MOSQUITTO<br/>Broker MQTT"]
         NODEEXP["📈 <br/> NODE_EXPORTER<br/>cpu · ram · tmp"]
 
         CAM --> INF
-        INF -->|GPIO x4| SERVOS
+        INF -->|GPIO x5| SERVOS
         INF -->|event!| MOSQ
     end
 
@@ -70,11 +78,15 @@ El diagrama original en drawio queda como referencia histórica en
 ### Componentes
 
 - **Producto (dispositivo):** gabinete con cámara, tolva, plataforma fija de
-  **4 compuertas** (una por clase, cada una con su servo SG90, las 4 arrancan
-  cerradas) y la Raspberry Pi 3 en el interior.
-- **Inferencia:** modelo de clasificación de 4 clases exportado a **TFLite
-  int8**, obtenido por *fine-tuning* sobre un modelo preentrenado con una
-  herramienta drag-and-drop (a confirmar con el docente).
+  **5 compuertas** (una por clase — la quinta, metal, la suma el equipo en
+  noviembre; en octubre las 5 salidas se simulan con LEDs, ADR 0008) y la
+  Raspberry Pi 3 en el interior.
+- **Inferencia:** *fine-tuning* de MobileNetV2 (código propio en
+  [`vision/`](vision/), no una herramienta drag-and-drop, ver ADR 0001),
+  exportado a **TFLite int8**. Antes de publicar un evento, una máquina de
+  estados (`raspberry/deteccion.py`, ADR 0009) exige que el objeto quede
+  quieto y tenga tamaño de residuo, y descarta lo que el modelo ve como
+  `ninguno` (una mano, una cara, un animal).
 - **Transporte:** **MQTT** con **Mosquitto** como broker corriendo en la
   propia Pi.
 - **Persistencia:** **SQLite** (`eventos.db`), poblada por un script
@@ -90,28 +102,44 @@ El diagrama original en drawio queda como referencia histórica en
 
 ### Red
 
-La Pi arma su propia red en modo Access Point: `192.168.20.0/28` (14 hosts
-usables), Pi en `.1`, host cliente/servidor en `.2`. El tráfico MQTT nunca
-sale de esta red, por lo que se acepta operar **sin TLS ni autenticación**.
+**Diseño:** la Pi arma su propia red en modo Access Point, `192.168.20.0/28` (14 hosts usables),
+Pi en `.1`, host cliente/servidor en `.2`. El tráfico MQTT nunca sale de esta red, por lo que se
+acepta operar **sin TLS ni autenticación**.
+
+**Hoy:** el modo Access Point todavía no está implementado (ni a mano ni en
+[`infra/ansible/`](infra/ansible/)) — se prueba compartiendo la red que ya tiene internet (ver
+`docs/guia-instalacion-raspberry.md`, "Limitaciones conocidas").
 
 ---
 
-## Prototipo de detección — `software_detección/TrashNate`
+## Modelo — [`vision/`](vision/)
 
-Primeras pruebas locales de clasificación de imágenes, corriendo sobre el
-dataset público [TrashNet](https://github.com/garythung/trashnet)
-(`Data/archive/dataset-resized/`, 6 clases: cardboard, glass, metal, paper,
-plastic, trash — todavía no mapeadas a las 4 clases finales del producto):
+Transfer learning (ADR 0001) sobre el dataset público
+[TrashNet](https://github.com/garythung/trashnet) (`vision/data/trashnet/`,
+6 clases nativas: cardboard, glass, metal, paper, plastic, trash), mapeadas
+a las 5 clases de producto **en el borde** (`schema/clases.json`, ADR 0008),
+no en el entrenamiento — ver `vision/classes.py`. Falta la clase `organico`
+propia (TrashNet no la tiene) y los negativos para `ninguno` (ADR 0009).
+Backbone por defecto: **MobileNetV2 224px**, el mismo que está desplegado
+en `raspberry/modelo/`; `mobilenetv3small` queda como alternativa para
+comparar en igualdad de condiciones. Se entrena en Colab
+([`vision/notebooks/entrenar_colab.ipynb`](vision/notebooks/entrenar_colab.ipynb))
+o local/Docker — ver [`vision/README.md`](vision/README.md).
 
-- [`main.py`](software_detección/TrashNate/main.py): entrena una CNN
-  (Keras/TensorFlow) con data augmentation y exporta `modelo_trashnet.h5`.
-- [`cam_test.py`](software_detección/TrashNate/cam_test.py): prueba el
-  modelo entrenado en vivo contra la webcam (OpenCV).
+## Raspberry Pi — [`raspberry/`](raspberry/)
 
-Es un prototipo exploratorio para comparar modelos y condiciones (fondos,
-iluminación, disposición del residuo) antes de definir el modelo final —
-todavía no exporta a TFLite ni corre sobre la Pi (ver ADR 0001 y pendientes
-de Semana 3).
+Lo que corre **en la Pi**: captura por cámara USB, inferencia TFLite,
+conteo de objetos por diferencia de fondo y publicación MQTT (Mosquitto).
+Ya no incluye el dashboard — ver la sección siguiente. Guía completa de
+puesta en marcha:
+[`docs/guia-instalacion-raspberry.md`](docs/guia-instalacion-raspberry.md).
+
+## Host cliente/servidor — [`host/`](host/)
+
+Lo que corre **fuera de la Pi**, en la misma LAN: el adapter (MQTT → SQLite,
+único INSERT real, ADR 0003) y el dashboard (backend + frontend, lee esa
+misma base). Dos procesos independientes, no un monolito — ver
+[`host/README.md`](host/README.md) para el porqué y cómo correrlos.
 
 ---
 
@@ -120,6 +148,7 @@ de Semana 3).
 | Documento | Contenido |
 |---|---|
 | [`docs/Plan de Proyecto-G5.pdf`](<docs/Plan de Proyecto-G5.pdf>) | Plan de Proyecto entregado (requerimientos, objetivos, alcance) |
+| [`docs/entregas/entrega-2.pdf`](docs/entregas/entrega-2.pdf) | Informe de Avance 2 (11/10) — módulo de la Raspberry Pi. **No pasa el chequeo de formato de [`prolijito`](https://github.com/festradax07/prolijito) todavía** (ver `docs/entregas/README.md`). |
 | [`docs/presentaciones/EcoSort_Presentacion.pdf`](docs/presentaciones/EcoSort_Presentacion.pdf) | PowerPoint de la presentación del proyecto |
 | [`docs/circuito-de-alimentacion/Circuito de alimentación.pdf`](<docs/circuito-de-alimentacion/Circuito de alimentación.pdf>) | Circuito de alimentación de Raspberry Pi, servos y demás componentes |
 | [`docs/modelo-ideas/varios-prototipos-propuestos.pdf`](docs/modelo-ideas/varios-prototipos-propuestos.pdf) | Prototipos de maqueta evaluados para el gabinete |
@@ -136,12 +165,17 @@ de Semana 3).
 │   ├── Plan de Proyecto-G5.pdf              # Entrega del Plan de Proyecto
 │   ├── arquitectura-mmd.png                 # Render del diagrama Mermaid
 │   ├── arquitectura-software.png            # Diagrama de arquitectura (versión anterior)
+│   ├── entregas/entrega-2.pdf               # Informe de Avance 2 (ver docs/entregas/README.md)
 │   ├── adr/                                 # Architecture Decision Records
 │   │   ├── 0001-modelo-preentrenado-vs-finetune.md
 │   │   ├── 0002-plataforma-4-compuertas-collar.md
 │   │   ├── 0003-mqtt-sqlite-como-contrato.md
 │   │   ├── 0004-grafana-vs-dashboard-propio.md
-│   │   └── 0005-dashboard-propio-reemplaza-grafana.md
+│   │   ├── 0005-dashboard-propio-reemplaza-grafana.md
+│   │   ├── 0006-systemd-vs-docker-en-la-pi.md
+│   │   ├── 0007-docker-compose-en-el-host.md
+│   │   ├── 0008-contrato-de-eventos.md
+│   │   └── 0009-deteccion-en-cascada-y-rechazo.md
 │   ├── circuito-de-alimentacion/
 │   │   └── Circuito de alimentación.pdf
 │   ├── diagramas/
@@ -152,17 +186,35 @@ de Semana 3).
 │   │   └── varios-prototipos-propuestos.pdf
 │   └── presentaciones/
 │       └── EcoSort_Presentacion.pdf
-└── software_detección/
-    └── TrashNate/                            # Prototipo de clasificación (CNN + dataset TrashNet)
-        ├── main.py
-        ├── cam_test.py
-        └── Data/archive/dataset-resized/
+├── vision/                                   # entrenamiento del modelo (ver vision/README.md)
+│   ├── data/trashnet/                       # dataset TrashNet versionado
+│   ├── notebooks/entrenar_colab.ipynb       # entrena en Colab, llama a estos scripts
+│   ├── models.py, train.py, evaluate.py, export_tflite.py, webcam_test.py
+│   └── Dockerfile, docker-compose.yml       # entrenar/evaluar/exportar reproducible
+├── raspberry/                                # corre EN la Pi
+│   ├── modelo/                              # ecosort_int8.tflite, ecosort_fp32.tflite, labels.txt
+│   ├── ecosort_pi.py, inferencia_pi.py, ecosort_mqtt.py, vista_en_vivo.py
+│   ├── deteccion.py, clases.py             # cuándo y si analizar (ADR 0009); vocabulario de clases
+│   ├── tests/test_deteccion.py
+│   └── mosquitto/ecosort.conf
+├── host/                                     # corre en el host cliente/servidor, no en la Pi
+│   ├── docker-compose.yml                   # adapter + dashboard (+ docker-compose.dev.yml: broker local)
+│   ├── adapter/adapter.py                   # MQTT -> SQLite, único INSERT real
+│   └── dashboard/
+│       ├── backend/backend.py, estadisticas.py  # API + panel; agregaciones para graficar
+│       └── frontend/index.html
+├── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
+│   ├── evento.schema.json, clases.json, eventos.sql
+│   └── tests/test_contrato.py
+├── infra/ansible/                            # instalar/desplegar la Pi (ver su README.md)
+│   ├── pi.yml, tasks/*.yml                   # Mosquitto, cámara, entorno Python, despliegue, servicio
+│   └── templates/ecosort_pi.service.j2       # reemplaza al nohup manual (ADR 0006)
+└── .github/prolijito/ecosort-entrega.yaml    # perfil de formato para docs/entregas/ (job "entrega" del CI)
 ```
 
-Referenciados en la documentación pero **aún no versionados**:
-`schema/eventos.sql`, el código del dashboard propio (framework a definir,
-ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
-`docs/validacion.md`.
+Referenciado en la documentación pero **aún no versionado**: `docs/validacion.md`
+(la metodología de validación del modelo, entregable de noviembre). El dashboard propio ya existe,
+sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)).
 
 ---
 
@@ -170,28 +222,40 @@ ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md)) y
 
 | # | Decisión | Estado |
 |---|---|---|
-| [0001](docs/adr/0001-modelo-preentrenado-vs-finetune.md) | Fine-tuning sobre modelo preentrenado (export TFLite int8) en vez de entrenar desde cero | Propuesto — falta confirmar herramienta exacta |
-| [0002](docs/adr/0002-plataforma-4-compuertas-collar.md) | Plataforma fija de 4 compuertas (una por clase), reemplaza 3 iteraciones previas | Aceptado |
+| [0001](docs/adr/0001-modelo-preentrenado-vs-finetune.md) | Fine-tuning de MobileNetV2 con código propio (export TFLite int8), no una herramienta drag-and-drop | Aceptado |
+| [0002](docs/adr/0002-plataforma-4-compuertas-collar.md) | Plataforma fija de compuertas (una por clase), reemplaza 3 iteraciones previas — ampliada por la ADR 0008 a 5 | Aceptado |
 | [0003](docs/adr/0003-mqtt-sqlite-como-contrato.md) | Transporte MQTT + Mosquitto; persistencia SQLite vía adaptador propio | Aceptado |
 | [0004](docs/adr/0004-grafana-vs-dashboard-propio.md) | Grafana (+ Prometheus/node_exporter opcional) en vez de dashboard propio | Rechazada — reemplazada por ADR 0005 |
 | [0005](docs/adr/0005-dashboard-propio-reemplaza-grafana.md) | Dashboard propio (Front End) leyendo SQLite + Prometheus, en vez de Grafana — a pedido del docente | Aceptado |
+| [0006](docs/adr/0006-systemd-vs-docker-en-la-pi.md) | Servicios en la Pi (Mosquitto, inferencia, node_exporter) corren con systemd, no Docker | Aceptado |
+| [0007](docs/adr/0007-docker-compose-en-el-host.md) | Servicios del host (adapter, dashboard, luego Prometheus) se despliegan con Docker Compose | Aceptado |
+| [0008](docs/adr/0008-contrato-de-eventos.md) | Contrato de eventos v1: 5 clases de producto y 5 compuertas (metal incluido; LEDs en octubre), validación en el adapter | Aceptado (26/9) |
+| [0009](docs/adr/0009-deteccion-en-cascada-y-rechazo.md) | Detección en cascada (quietud, tamaño, modelo) y clase `ninguno` para rechazar lo que no es un residuo (manos, caras, animales) | Aceptado (26/9) |
 
----
 
-## Avances (Semana 2)
 
-- [x] Definición del circuito de alimentación de los componentes de hardware.
-- [x] Pruebas locales de modelos de clasificación de residuos (`software_detección/TrashNate`, dataset TrashNet), variando fondos, iluminación y disposición del residuo.
-- [x] Entrega del Plan de Proyecto, con documentación de requerimientos, objetivos y alcance.
-- [x] Presentación del proyecto: PowerPoint y video.
-- [x] Migración del diagrama de arquitectura a Mermaid (`docs/diagramas/arquitectura.mmd`), a pedido del docente.
+## Semana 7 y 8: sin cambios de código
 
-## Pendiente para Semana 3
+Dos semanas de pruebas con el hardware real: se armó el circuito de alimentación y se probaron los
+cuatro servos conectados a la Pi. Apareció un problema real con la fuente de alimentación (picos de
+corriente de los servos) — detalle en `BITACORA.md`, Semana 7 y 8.
 
-- [ ] Continuar las pruebas y avanzar en la selección del modelo de detección de residuos.
-- [ ] Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.
-- [ ] Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.
-- [ ] Continuar la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.
+## Avances (Semana 9)
+
+- [x] Arreglado el job `entrega` del CI: el perfil propio de [`prolijito`](https://github.com/festradax07/prolijito) (`.github/prolijito/ecosort-entrega.yaml`) nunca se había creado, así que el job habría fallado en la primera promoción a una rama `entrega_*`. De paso, se actualizó el pin de `v0.1.0` a `v0.3.1` (imagen publicada, más rápida y con menos falsos positivos).
+- [x] Sacado `.github/scripts/formato-entregas/` (el chequeador viejo), sin uso desde que el CI pasa por `prolijito`.
+
+## Pendiente para Semana 10
+- [ ] Registrar en la bitácora el problema de la fuente de alimentación (Semana 7 y 8) y su solución.
+- [ ] Incorporar `servos.py` al repositorio — el Informe de Avance 2 dice que el código existe pero todavía no está commiteado.
+- [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
+- [ ] Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo) midiendo eventos falsos.
+- [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
+- [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
+- [ ] Correr el playbook de Ansible (`infra/ansible/`) contra una Pi real y registrar el resultado en `BITACORA.md`.
+- [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
+
+Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
 
 Cronograma general: dos tramos de entrega (octubre / noviembre). ML es la ruta
 crítica; la observabilidad del dispositivo se aborda recién cerca de la

@@ -1,6 +1,6 @@
 # Modelo
 
-Copiar acá los archivos que genera `software_detección/MobileNetV2/entrenar_ecosort.ipynb`:
+Copiar acá los archivos que genera `vision/notebooks/entrenar_colab.ipynb`:
 
 - `ecosort_int8.tflite` — el que se usa en la Raspberry Pi
 - `ecosort_fp32.tflite` — referencia para comparar velocidad

@@ -1,10 +1,10 @@
-"""prueba en vivo contra la webcam, como cam_test.py de TrashNate pero para
-los modelos de train.py/export_tflite.py. sirve para .keras y .tflite (probar
-el .tflite acá confirma que la cuantización no rompió nada antes de subirlo a la Pi).
+"""prueba en vivo contra la webcam, para los modelos de train.py/export_tflite.py.
+sirve para .keras y .tflite (probar el .tflite acá confirma que la
+cuantización no rompió nada antes de subirlo a la Pi).
 
 uso:
-    python webcam_test.py --run-dir runs/mobilenetv3small --model final.keras
-    python webcam_test.py --run-dir runs/mobilenetv3small --model model_int8.tflite
+    python webcam_test.py --run-dir runs/mobilenetv2 --model final.keras
+    python webcam_test.py --run-dir runs/mobilenetv2 --model model_int8.tflite
 """
 
 import argparse
@@ -15,6 +15,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tensorflow as tf
+
+import models  # noqa: F401 — registra Clip255 para que load_model la encuentre
 
 
 class KerasPredictor:
@@ -61,9 +63,10 @@ def get_roi_box(frame_shape, fraction):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", default="runs/mobilenetv3small")
+    parser.add_argument("--run-dir", default="runs/mobilenetv2")
     parser.add_argument("--model", default="final.keras")
-    parser.add_argument("--img-size", type=int, default=128)
+    parser.add_argument("--img-size", type=int, default=None,
+                         help="default: el que se usó para entrenar (leído de split.json)")
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--smooth-frames", type=int, default=8,
                          help="frames a promediar para que no titile la predicción (0 = sin suavizado)")
@@ -77,7 +80,16 @@ def main():
     run_dir = Path(args.run_dir)
     classes = json.loads((run_dir / "classes.json").read_text())
     model_path = run_dir / args.model
-    img_size = (args.img_size, args.img_size)
+
+    img_size_px = args.img_size
+    if img_size_px is None:
+        split_path = run_dir / "split.json"
+        # sin split.json (o de una corrida vieja sin img_size) no hay forma de
+        # saberlo con certeza; 128 era el default histórico de vision/.
+        img_size_px = json.loads(split_path.read_text()).get("img_size", 128) \
+            if split_path.exists() else 128
+        print(f"--img-size no especificado, usando {img_size_px}px (de {split_path})")
+    img_size = (img_size_px, img_size_px)
 
     if model_path.suffix == ".tflite":
         predictor = TFLitePredictor(model_path, img_size)

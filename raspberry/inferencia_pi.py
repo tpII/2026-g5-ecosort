@@ -17,6 +17,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from clases import es_descarte, producto_de, validar_etiquetas
+
 try:
     from ai_edge_litert.interpreter import Interpreter   # nombre nuevo de tflite-runtime
 except ImportError:
@@ -26,12 +28,6 @@ except ImportError:
 RESCALE = False
 # Por defecto; si hay un labels.txt junto al modelo, se usa ese.
 CLASES = ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
-# TrashNet (6 clases) -> las 4 compuertas de EcoSort. None = sin compuerta todavía.
-MAPEO = {
-    "cardboard": ("papel", 2), "paper": ("papel", 2),
-    "plastic": ("plastico", 1), "glass": ("vidrio", 3),
-    "metal": (None, None), "trash": (None, None),
-}
 UMBRAL = 0.6
 
 
@@ -45,6 +41,8 @@ class Clasificador:
         etiquetas = Path(modelo).with_name("labels.txt")
         if etiquetas.exists():
             CLASES = [l.strip() for l in etiquetas.read_text().splitlines() if l.strip()]
+        validar_etiquetas(CLASES)
+        self.etiquetas = list(CLASES)   # en el orden de las salidas del modelo
         self.interp = Interpreter(model_path=modelo, num_threads=hilos)
         self.interp.allocate_tensors()
         self.inp = self.interp.get_input_details()[0]
@@ -62,7 +60,8 @@ class Clasificador:
             x = np.clip(np.round(x / escala + cero), -128, 255).astype(self.inp["dtype"])
         return x[np.newaxis, ...]
 
-    def predecir(self, frame_bgr):
+    def probabilidades(self, frame_bgr):
+        """(vector de probabilidades en el orden de self.etiquetas, ms de inferencia)."""
         self.interp.set_tensor(self.inp["index"], self.preparar(frame_bgr))
         t0 = time.perf_counter()
         self.interp.invoke()
@@ -71,6 +70,10 @@ class Clasificador:
         if self.out["dtype"] != np.float32:
             escala, cero = self.out["quantization"]
             y = (y - cero) * escala
+        return y, ms
+
+    def predecir(self, frame_bgr):
+        y, ms = self.probabilidades(frame_bgr)
         i = int(np.argmax(y))
         return CLASES[i], float(y[i]), ms
 
@@ -126,11 +129,9 @@ def camara(clf, pub=None, cam_id=0, picam=False):
             if frame is None:
                 continue
             clase, conf, ms = clf.predecir(frame)
-            destino, compuerta = MAPEO.get(clase, (None, None))
-            print(f"{clase:10s} {conf:.2f}  {ms:5.0f} ms  -> {destino}")
-            if pub and destino and conf >= UMBRAL:
-                pub.publicar_evento(destino, conf, compuerta, latencia_ms=round(ms, 1),
-                                    modelo=args.modelo)
+            print(f"{clase:10s} {conf:.2f}  {ms:5.0f} ms  -> {producto_de(clase) or 'descarte'}")
+            if pub and conf >= UMBRAL and not es_descarte(clase):
+                pub.publicar_evento(clase, conf, latencia_ms=round(ms, 1), modelo=args.modelo)
                 time.sleep(2)  # evita publicar el mismo residuo 20 veces
     except KeyboardInterrupt:
         pass

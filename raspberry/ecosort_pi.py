@@ -1,50 +1,45 @@
-"""EcoSort en la Raspberry Pi: cámara + clasificación + conteo por objeto + MQTT.
+"""EcoSort en la Raspberry Pi: cámara + detección + clasificación + MQTT.
 
     python ecosort_pi.py --modelo ecosort_int8.tflite           # detecta, cuenta y publica
     python ecosort_pi.py --modelo ecosort_int8.tflite --video   # además video en http://<pi>:8000
-    python ecosort_pi.py --modelo ecosort_int8.tflite --servos  # además abre la compuerta que corresponde
-    python ecosort_pi.py --modelo ecosort_int8.tflite --solo-metal   # UN servo: se mueve solo si ve metal
-    python ecosort_pi.py --modelo ecosort_int8.tflite --solo-metal --pin-servo 22   # servo en GPIO22 (pin 15)
 
 IMPORTANTE: al arrancar, la cámara tiene que ver la escena VACÍA unos 2 segundos.
-Ahí aprende cómo es el fondo; después cuenta UN evento por cada objeto que aparece,
-y no vuelve a contar hasta que el objeto se retira.
+Ahí aprende cómo es el fondo.
+
+Cuándo se analiza un objeto lo decide raspberry/deteccion.py (ADR 0009): hace falta que lo que
+apareció quede quieto ~1 s y tenga un tamaño de residuo; recién ahí se clasifican los cuadros más
+nítidos y se decide por el promedio. Una mano que pasa, una cara o un animal no llegan al modelo, o
+si llegan el modelo los descarta con la clase "ninguno". Se cuenta UN evento por objeto aceptado, y
+no vuelve a analizar nada hasta que la plataforma queda libre.
+
+Un objeto incierto (parece un residuo pero no se sabe cuál) también publica un evento, pero
+forzado a la clase "organico" (ADR 0002): comparte contenedor con la baja confianza, a costa
+de su pureza — es un trade-off documentado, no un error.
 
 Tópicos MQTT que publica:
-    ecosort/<id>/vivo     -> lo que ve ahora, ~3 veces por segundo (QoS 0)
-    ecosort/<id>/eventos  -> un mensaje por residuo contado (QoS 1)
+    ecosort/<id>/vivo     -> estado de la detección, ~3 veces por segundo (QoS 0)
+    ecosort/<id>/eventos  -> un mensaje por residuo aceptado o incierto (QoS 1), ver docs/contrato-mqtt.md
 
-Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, labels.txt
-(vista_en_vivo.py si se usa --video, y servos.py si se usa --servos).
+Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, clases.py, deteccion.py,
+labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py si se usa --video.
 """
 
 import argparse
+import os
 import threading
 import time
 
 import cv2
 import numpy as np
 
+from clases import DESCARTES
+from deteccion import Cuadro, Deteccion, Estado, Parametros, fraccion_distinta
 from ecosort_mqtt import EcoSortMQTT
 from inferencia_pi import Clasificador
 
-UMBRAL_CONF = 0.60      # confianza mínima para contar un residuo
-FRAMES_ESTABLE = 3      # cuadros seguidos con la misma clase para confirmarlo
-UMBRAL_CAMBIO = 0.03    # fracción de la imagen que tiene que cambiar para decir "hay algo"
-FRAMES_PRESENTE = 3     # cuadros seguidos con cambio para marcar que llegó un objeto
-FRAMES_AUSENTE = 8      # cuadros seguidos sin cambio para darlo por retirado
-MAX_PRESENTE_S = 30     # si "hay algo" más de esto, se asume que cambió el fondo y se recalibra
-DIF_PIXEL = 30          # diferencia de gris (0-255) para considerar que un píxel cambió
-
-# Clase del modelo -> número de compuerta (ver servos.py). None = sin compuerta todavía.
-# TrashNet no tiene "orgánico": la compuerta 4 queda sin usar hasta tener un dataset propio.
-COMPUERTA = {
-    "plastic": 1, "plastico": 1,
-    "paper": 2, "cardboard": 2, "papel": 2,
-    "glass": 3, "vidrio": 3,
-    "organico": 4,
-    "metal": None, "trash": None,
-}
+PARAMETROS = Parametros()   # umbrales de la detección (raspberry/deteccion.py): sin calibrar con la cámara real
+DIF_PIXEL = 30              # diferencia de gris (0-255) para considerar que un píxel cambió respecto del fondo
+DIF_MOV = 20                # ... respecto del cuadro anterior: eso es movimiento
 
 
 class Fondo:
@@ -58,11 +53,14 @@ class Fondo:
         g = cv2.cvtColor(cv2.resize(frame, (160, 120)), cv2.COLOR_BGR2GRAY)
         return cv2.GaussianBlur(g, (5, 5), 0).astype(np.float32)
 
+    def mascara(self, g):
+        return np.abs(g - self.ref) > DIF_PIXEL
+
     def medir(self, frame):
         g = self._gris(frame)
         if self.ref is None:
             self.ref = g.copy()
-        return float((np.abs(g - self.ref) > DIF_PIXEL).mean()), g
+        return float(self.mascara(g).mean()), g
 
     def aprender(self, g, velocidad=0.05):
         # Actualiza el fondo de a poco (cambios lentos de luz). Solo sin objeto en escena.
@@ -73,9 +71,8 @@ class Fondo:
 
 
 class Detector:
-    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False, compuertas=None):
+    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False):
         self.clf, self.pub, self.modelo, self.video = clf, pub, modelo, video
-        self.compuertas = compuertas
         self.periodo = 1.0 / fps
         self.cap = cv2.VideoCapture(cam_id, cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -105,13 +102,26 @@ class Detector:
                 self.fondo.aprender(g, 0.3)
         print("Listo. Esperando residuos (Ctrl+C para cortar).")
 
+    def _nitidez(self, frame, g):
+        """Nitidez (varianza del Laplaciano) de la zona que cambió, a resolución completa. Solo sirve
+        para ordenar los cuadros de un mismo objeto entre sí y quedarse con los más nítidos."""
+        ys, xs = np.where(self.fondo.mascara(g))
+        if len(ys) == 0:
+            return 0.0
+        fy, fx = frame.shape[0] / g.shape[0], frame.shape[1] / g.shape[1]
+        zona = frame[int(ys.min() * fy):int((ys.max() + 1) * fy),
+                     int(xs.min() * fx):int((xs.max() + 1) * fx)]
+        if zona.size == 0:
+            return 0.0
+        return float(cv2.Laplacian(cv2.cvtColor(zona, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
+
     def correr(self):
         self.calibrar()
-        presente = contado = False
-        con_cambio = sin_cambio = 0
-        historial = []
-        desde = ultimo_vivo = 0.0
+        maquina = Deteccion(self.clf.etiquetas, descartes=DESCARTES, params=PARAMETROS)
+        g_prev = None
+        ultimo_vivo = 0.0
         total = 0
+        ultima = None   # última decisión: se muestra mientras se espera que la plataforma se libere
 
         while True:
             t0 = time.monotonic()
@@ -121,64 +131,87 @@ class Detector:
                 continue
             original = frame.copy()
 
-            # 1) ¿Hay un objeto en escena?
+            # 1) Qué cambió en la escena (barato: imagen chica) y, mientras algo se asienta, qué tan nítido
             cambio, g = self.fondo.medir(frame)
-            if cambio > UMBRAL_CAMBIO:
-                con_cambio, sin_cambio = con_cambio + 1, 0
-            else:
-                con_cambio, sin_cambio = 0, sin_cambio + 1
+            cambio_prev = fraccion_distinta(g, g_prev, DIF_MOV) if g_prev is not None else 0.0
+            g_prev = g
+            nitidez = self._nitidez(frame, g) if maquina.estado is Estado.ASENTANDO else 0.0
 
-            if not presente and con_cambio >= FRAMES_PRESENTE:
-                presente, contado, historial, desde = True, False, [], t0
-            elif presente and sin_cambio >= FRAMES_AUSENTE:
-                presente = False
-            elif presente and t0 - desde > MAX_PRESENTE_S:
-                print("Mucho tiempo con algo en escena: se toma como fondo nuevo.")
-                self.fondo.reiniciar(g)
-                presente = False
-            if not presente:
+            # 2) La máquina decide. El modelo solo corre si pasó la quietud y la plausibilidad.
+            tiempos = []
+
+            def clasificar(f):
+                probs, ms = self.clf.probabilidades(f)
+                tiempos.append(ms)
+                return probs
+
+            r = maquina.paso(Cuadro(cambio, cambio_prev, nitidez, frame), clasificar)
+            if maquina.puede_aprender_fondo:
                 self.fondo.aprender(g)
 
-            # 2) Si hay objeto, clasificar y contarlo UNA vez cuando la clase se estabiliza
-            clase = conf = None
-            if presente:
-                clase, conf, ms = self.clf.predecir(frame)
-                historial.append((clase if conf >= UMBRAL_CONF else None, conf))
-                ult = historial[-FRAMES_ESTABLE:]
-                if (not contado and len(ult) == FRAMES_ESTABLE and ult[0][0] is not None
-                        and all(c == ult[0][0] for c, _ in ult)):
-                    conf_media = sum(p for _, p in ult) / len(ult)
-                    compuerta = COMPUERTA.get(ult[0][0])
-                    self.pub.publicar_evento(ult[0][0], conf_media, compuerta=compuerta,
-                                             latencia_ms=round(ms, 1), modelo=self.modelo)
-                    if self.compuertas and compuerta:
-                        self.compuertas.abrir(compuerta)   # no bloquea: corre en otro hilo
-                    contado = True
+            d = r.decision
+            if d is not None:
+                ultima = d
+                if d.tipo in ("aceptado", "incierto"):
+                    # incierto: mismo evento, pero armar_evento fuerza la clase a "organico"
+                    # (ADR 0002) cuando se le pasa un motivo — el modelo vio d.etiqueta, no organico.
+                    self.pub.publicar_evento(d.etiqueta, d.confianza,
+                                             latencia_ms=round(sum(tiempos) / len(tiempos), 1),
+                                             modelo=self.modelo,
+                                             motivo=d.motivo if d.tipo == "incierto" else None)
                     total += 1
-                    print(f"[{total}] contado: {ult[0][0]} ({conf_media:.0%})")
+                    if d.tipo == "aceptado":
+                        print(f"[{total}] contado: {d.etiqueta} ({d.confianza:.0%})")
+                    else:
+                        print(f"[{total}] incierto -> organico: el modelo vio {d.etiqueta} "
+                             f"({d.confianza:.0%}), motivo {d.motivo}")
+                else:
+                    visto = f" (el modelo vio {d.etiqueta}, {d.confianza:.0%})" if d.etiqueta else ""
+                    print(f"[{d.tipo}] {d.motivo}{visto}")
+            for nombre, dato in r.senales:
+                if nombre == "no_retirado":
+                    # Además de avisar (acá se engancharía una alarma), se sigue como antes: si algo
+                    # queda ~30 s se asume que cambió el fondo y se recalibra.
+                    print(f"[no_retirado] la plataforma sigue ocupada tras '{dato}': se toma como fondo nuevo.")
+                    self.fondo.reiniciar(g)
+                    maquina.reiniciar()
+            if maquina.estado is Estado.LIBRE:
+                ultima = None
 
             # 3) Estado en vivo para el dashboard (~3 por segundo)
+            publicada = ultima is not None and ultima.tipo in ("aceptado", "incierto")
             if t0 - ultimo_vivo >= 0.33:
                 self.pub.publicar_vivo({
-                    "presente": presente,
-                    "clase": clase,
-                    "confianza": round(conf, 4) if conf is not None else None,
-                    "contado": contado,
+                    "presente": maquina.estado is not Estado.LIBRE,
+                    "estado": maquina.estado.value,
+                    # incierto también publica un evento, pero a "organico" (ADR 0002): acá se
+                    # muestra esa clase real, no la etiqueta cruda que vio el modelo (esa va en vivo
+                    # como "motivo", igual que un descarte)
+                    "clase": ("organico" if ultima.tipo == "incierto" else ultima.etiqueta) if publicada else None,
+                    "confianza": round(ultima.confianza, 4) if publicada else None,
+                    "contado": publicada,
+                    "motivo": ultima.motivo if ultima is not None else None,
                 })
                 ultimo_vivo = t0
 
             if self.video:
-                self._video(frame, original, presente, clase, conf, contado)
+                if ultima is not None and ultima.tipo == "aceptado":
+                    texto = f"{ultima.etiqueta} {ultima.confianza:.0%}  [contado]"
+                elif ultima is not None and ultima.tipo == "incierto":
+                    texto = f"incierto ({ultima.motivo}): el modelo vio {ultima.etiqueta} -> organico"
+                elif ultima is not None:
+                    texto = f"no reconocido ({ultima.motivo})"
+                elif maquina.estado is Estado.ASENTANDO:
+                    texto = "analizando..."
+                else:
+                    texto = "esperando residuo..."
+                self._video(frame, original, texto)
 
             espera = self.periodo - (time.monotonic() - t0)
             if espera > 0:
                 time.sleep(espera)
 
-    def _video(self, frame, original, presente, clase, conf, contado):
-        if presente and clase:
-            texto = f"{clase} {conf:.0%}" + ("  [contado]" if contado else "")
-        else:
-            texto = "esperando residuo..."
+    def _video(self, frame, original, texto):
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), (0, 0, 0), -1)
         cv2.putText(frame, texto, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (80, 255, 80), 2)
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -193,29 +226,16 @@ if __name__ == "__main__":
     ap.add_argument("--modelo", required=True)
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--video", action="store_true", help="servir el video en el puerto 8000")
-    ap.add_argument("--servos", action="store_true", help="mover las compuertas (servos por GPIO)")
-    ap.add_argument("--solo-metal", action="store_true",
-                    help="un solo servo, que se mueve únicamente cuando se detecta metal (implica --servos)")
-    ap.add_argument("--pin-servo", type=int, default=17,
-                    help="GPIO (BCM) del servo con --solo-metal. 17=pin 11, 27=pin 13, 22=pin 15, 23=pin 16")
-    ap.add_argument("--broker", default="localhost")
-    ap.add_argument("--dispositivo", default="ecosort-01")
+    # ECOSORT_BROKER / ECOSORT_DISPOSITIVO: lo que varía por Pi física (qué broker, con qué
+    # identidad se publica). Los lee systemd desde infra/ansible/templates/ecosort_pi.env.j2
+    # (EnvironmentFile); el flag sigue existiendo para correrlo a mano y gana si se pasa.
+    ap.add_argument("--broker", default=os.getenv("ECOSORT_BROKER", "localhost"))
+    ap.add_argument("--dispositivo", default=os.getenv("ECOSORT_DISPOSITIVO", "ecosort-01"))
     args = ap.parse_args()
 
     clf = Clasificador(args.modelo)
     pub = EcoSortMQTT(dispositivo_id=args.dispositivo, host=args.broker)
-    compuertas = None
-    if args.solo_metal:
-        # Un solo servo (compuerta 1) y solo para "metal": el resto se cuenta y se publica, pero no mueve nada.
-        COMPUERTA.clear()
-        COMPUERTA["metal"] = 1
-        import servos
-        servos.NOMBRES = {1: "metal"}
-        compuertas = servos.Compuertas(pines={1: args.pin_servo})
-    elif args.servos:
-        from servos import Compuertas
-        compuertas = Compuertas()
-    det = Detector(clf, pub, args.modelo, args.cam, video=args.video, compuertas=compuertas)
+    det = Detector(clf, pub, args.modelo, args.cam, video=args.video)
 
     if args.video:
         from http.server import ThreadingHTTPServer
@@ -232,5 +252,3 @@ if __name__ == "__main__":
         pass
     finally:
         pub.cerrar()
-        if compuertas:
-            compuertas.cerrar()

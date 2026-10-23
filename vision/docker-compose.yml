@@ -1,25 +1,32 @@
-# uso: docker compose run --rm train   (o evaluate / export)
+# uso: UID=$(id -u) GID=$(id -g) docker compose run --rm train   (o evaluate / export)
 # corre igual en cualquier SO con Docker instalado, sin activar ningún venv.
+# data/ se monta como volumen (no se copia a la imagen, ver .dockerignore)
+# para no tener que reconstruir cada vez que cambian las fotos del dataset.
+# user: sin esto el contenedor escribe en ./runs como root y después no podés
+# borrar ni sobreescribir esos archivos desde el host sin sudo.
 
 services:
   train:
     build: .
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ../software_detección:/data/software_detección:ro
+      - ./data:/app/data:ro
       - ./runs:/app/runs
-    command: >
-      train.py --data-dir /data/software_detección/TrashNate/Data/archive/dataset-resized
+    command: train.py
 
   evaluate:
     build: .
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ../software_detección:/data/software_detección:ro
+      - ./data:/app/data:ro
       - ./runs:/app/runs
-    command: evaluate.py --run-dir runs/mobilenetv3small
+    command: evaluate.py --run-dir runs/mobilenetv2
 
   export:
     build: .
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ../software_detección:/data/software_detección:ro
+      - ./data:/app/data:ro
       - ./runs:/app/runs
-    command: export_tflite.py --run-dir runs/mobilenetv3small
+    command: export_tflite.py --run-dir runs/mobilenetv2
+    
