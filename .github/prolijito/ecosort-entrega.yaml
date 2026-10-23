@@ -1,0 +1,8 @@
+# Perfil propio de EcoSort para prolijito (https://github.com/festradax07/prolijito),
+# ver .github/workflows/ci.yml, job "entrega".
+# Por ahora no cambia nada de la norma de la cátedra: hereda todo de unlp-tp2. Es el lugar para
+# bajar una regla a "revisar" o ajustar algo puntual de nuestras entregas sin tocar la norma base.
+id: ecosort-entrega
+version: 1.0.0
+extends: unlp-tp2@1
+descripcion: Entregas de EcoSort (Taller de Proyecto II) — por ahora, igual a la norma de la cátedra

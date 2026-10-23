@@ -10,13 +10,17 @@ orgánico y metal) basado en visión por computadora sobre Raspberry Pi 3, con u
 mecanismo físico de 5 compuertas y un pipeline de datos hacia un dashboard de
 monitoreo propio.
 
-> **Estado del repositorio:** Semana 5 — pipeline funcionando de punta a punta: modelo (`vision/`,
+> **Estado del repositorio:** Semana 9 — pipeline funcionando de punta a punta: modelo (`vision/`,
 > MobileNetV2 desplegado y probado en la Pi real) → Raspberry Pi (`raspberry/`, captura +
 > detección en cascada + inferencia + MQTT) → host cliente/servidor (`host/`, adapter + dashboard
 > con API de estadísticas, procesos separados con Docker Compose). Contrato de eventos v1
 > (5 clases y 5 compuertas, ADR 0008) y clase `ninguno` para lo que no es un residuo (ADR 0009)
-> aceptados. Lo más reciente (`incierto`, estadísticas, Ansible) **todavía no se probó contra la
-> Pi real**, solo con tests y Docker. Roles del equipo repartidos por área (ver tabla de Equipo).
+> aceptados. Informe de Avance 2 entregado (11/10, `docs/entregas/entrega-2.pdf`); el CI de
+> formato pasó a usar [`prolijito`](https://github.com/festradax07/prolijito), herramienta propia
+> del equipo. Semanas 7 y 8 sin cambios de código: pruebas de hardware (servos, fuente de
+> alimentación) — ver BITACORA. Lo más reciente (`incierto`, estadísticas, Ansible) **todavía no se
+> probó contra la Pi real**, solo con tests y Docker. Roles del equipo repartidos por área (ver
+> tabla de Equipo).
 
 ---
 
@@ -144,6 +148,7 @@ misma base). Dos procesos independientes, no un monolito — ver
 | Documento | Contenido |
 |---|---|
 | [`docs/Plan de Proyecto-G5.pdf`](<docs/Plan de Proyecto-G5.pdf>) | Plan de Proyecto entregado (requerimientos, objetivos, alcance) |
+| [`docs/entregas/entrega-2.pdf`](docs/entregas/entrega-2.pdf) | Informe de Avance 2 (11/10) — módulo de la Raspberry Pi. **No pasa el chequeo de formato de [`prolijito`](https://github.com/festradax07/prolijito) todavía** (ver `docs/entregas/README.md`). |
 | [`docs/presentaciones/EcoSort_Presentacion.pdf`](docs/presentaciones/EcoSort_Presentacion.pdf) | PowerPoint de la presentación del proyecto |
 | [`docs/circuito-de-alimentacion/Circuito de alimentación.pdf`](<docs/circuito-de-alimentacion/Circuito de alimentación.pdf>) | Circuito de alimentación de Raspberry Pi, servos y demás componentes |
 | [`docs/modelo-ideas/varios-prototipos-propuestos.pdf`](docs/modelo-ideas/varios-prototipos-propuestos.pdf) | Prototipos de maqueta evaluados para el gabinete |
@@ -160,6 +165,7 @@ misma base). Dos procesos independientes, no un monolito — ver
 │   ├── Plan de Proyecto-G5.pdf              # Entrega del Plan de Proyecto
 │   ├── arquitectura-mmd.png                 # Render del diagrama Mermaid
 │   ├── arquitectura-software.png            # Diagrama de arquitectura (versión anterior)
+│   ├── entregas/entrega-2.pdf               # Informe de Avance 2 (ver docs/entregas/README.md)
 │   ├── adr/                                 # Architecture Decision Records
 │   │   ├── 0001-modelo-preentrenado-vs-finetune.md
 │   │   ├── 0002-plataforma-4-compuertas-collar.md
@@ -200,9 +206,10 @@ misma base). Dos procesos independientes, no un monolito — ver
 ├── schema/                                   # el contrato de eventos (docs/contrato-mqtt.md)
 │   ├── evento.schema.json, clases.json, eventos.sql
 │   └── tests/test_contrato.py
-└── infra/ansible/                            # instalar/desplegar la Pi (ver su README.md)
-    ├── pi.yml, tasks/*.yml                   # Mosquitto, cámara, entorno Python, despliegue, servicio
-    └── templates/ecosort_pi.service.j2       # reemplaza al nohup manual (ADR 0006)
+├── infra/ansible/                            # instalar/desplegar la Pi (ver su README.md)
+│   ├── pi.yml, tasks/*.yml                   # Mosquitto, cámara, entorno Python, despliegue, servicio
+│   └── templates/ecosort_pi.service.j2       # reemplaza al nohup manual (ADR 0006)
+└── .github/prolijito/ecosort-entrega.yaml    # perfil de formato para docs/entregas/ (job "entrega" del CI)
 ```
 
 Referenciado en la documentación pero **aún no versionado**: `docs/validacion.md`
@@ -225,37 +232,28 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 | [0008](docs/adr/0008-contrato-de-eventos.md) | Contrato de eventos v1: 5 clases de producto y 5 compuertas (metal incluido; LEDs en octubre), validación en el adapter | Aceptado (26/9) |
 | [0009](docs/adr/0009-deteccion-en-cascada-y-rechazo.md) | Detección en cascada (quietud, tamaño, modelo) y clase `ninguno` para rechazar lo que no es un residuo (manos, caras, animales) | Aceptado (26/9) |
 
----
 
-## Avances (Semana 3 y 4)
 
-- [x] Mergeado el runtime completo de la Raspberry Pi (rama `Mica`, integración de prueba): captura por cámara, inferencia TFLite, conteo de residuos, MQTT y dashboard — funcionando de punta a punta contra la Pi real.
-- [x] Modelo entrenado y desplegado (MobileNetV2, TFLite int8): 31ms de latencia en la Pi, ~79% de accuracy en test (dataset TrashNet, todavía sin la clase orgánico).
-- [x] Unificados los dos pipelines de entrenamiento en `vision/`, con MobileNetV2 como backbone por defecto y MobileNetV3Small como alternativa a comparar.
-- [x] Separado el dashboard en procesos independientes (`host/adapter/` + `host/dashboard/`), sacándolo de la Pi — la integración anterior corría todo por `localhost`, sin que MQTT cruzara red de verdad. ADR 0006 (systemd en la Pi) y ADR 0007 (Docker Compose en el host) documentadas, y `host/` ya se levanta con `docker compose up`.
-- [x] Contrato de eventos v1 definido y verificado ([`docs/contrato-mqtt.md`](docs/contrato-mqtt.md), ADR 0008): 5 clases y 5 compuertas (el metal se suma; en octubre las salidas se simulan con LEDs), JSON Schema versionado, validación en el adapter con registro de rechazos y tests de contrato en CI.
-- [x] Detección robusta (ADR 0009): una máquina de estados exige que el objeto quede quieto y tenga tamaño de residuo antes de analizarlo, y la nueva clase `ninguno` permite rechazar lo que no es un residuo sin ensuciar los eventos. En una comparación sintética pasó de 4 eventos falsos sobre 6 a 0, y de 285 a 15 inferencias. Umbrales todavía sin calibrar con la cámara real.
-- [x] Repartidos los roles del equipo para lo que sigue (ver tabla de arriba).
+## Semana 7 y 8: sin cambios de código
 
-## Avances (Semana 5)
+Dos semanas de pruebas con el hardware real: se armó el circuito de alimentación y se probaron los
+cuatro servos conectados a la Pi. Apareció un problema real con la fuente de alimentación (picos de
+corriente de los servos) — detalle en `BITACORA.md`, Semana 7 y 8.
 
-- [x] CI de formato de entregas: los PDF de `docs/entregas/` se chequean (fuente, tamaño, interlineado) al promoverlos de `main` a una rama `entrega_N`, con la skill de la cátedra ([`ia-guidelines-taller`](https://github.com/tpII/ia-guidelines-taller)).
-- [x] `incierto` implementado en el contrato (ADR 0002 + 0009): un objeto de baja confianza o cuadros inconsistentes ahora publica un evento igual, forzado a `clase: "organico"` (con `motivo` para distinguirlo de un orgánico genuino), en vez de no generar nada.
-- [x] API de estadísticas del dashboard (`/api/estadisticas/*`): cantidad y confianza por clase, pureza de orgánico, latencia de inferencia, y series por día / hora del día para graficar — la base para los contadores y gráficos propios (la observabilidad de infraestructura con Prometheus/Grafana sigue siendo un objetivo aparte, para después).
-- [x] Ansible para la Pi (`infra/ansible/`): empaqueta la instalación manual de Mosquitto, la cámara, el entorno de Python/TFLite, copiar `raspberry/` + `schema/`, y un servicio `systemd` para `ecosort_pi.py` con reinicio automático (ADR 0006) en vez del `nohup ... &` de la guía. Falta correrlo contra la Pi real.
-- [x] ADR 0001 corregida: describía una herramienta drag-and-drop que nunca se usó; ahora documenta lo que realmente se implementó (fine-tuning con código propio en `vision/`).
-- [x] Configuración por `.env`/`EnvironmentFile`, no hardcodeada: `host/.env.example` (Docker Compose lo lee solo) y `/etc/ecosort/ecosort_pi.env` (generado por Ansible, `EnvironmentFile` del servicio). De paso se encontró un bug real: el `.service` de `ecosort_pi` seteaba `ECOSORT_BROKER` como variable de entorno, pero el script nunca la leía — no hacía nada.
+## Avances (Semana 9)
 
-## Pendiente para Semana 6
+- [x] Arreglado el job `entrega` del CI: el perfil propio de [`prolijito`](https://github.com/festradax07/prolijito) (`.github/prolijito/ecosort-entrega.yaml`) nunca se había creado, así que el job habría fallado en la primera promoción a una rama `entrega_*`. De paso, se actualizó el pin de `v0.1.0` a `v0.3.1` (imagen publicada, más rápida y con menos falsos positivos).
+- [x] Sacado `.github/scripts/formato-entregas/` (el chequeador viejo), sin uso desde que el CI pasa por `prolijito`.
 
+## Pendiente para Semana 10
+- [ ] Registrar en la bitácora el problema de la fuente de alimentación (Semana 7 y 8) y su solución.
+- [ ] Incorporar `servos.py` al repositorio — el Informe de Avance 2 dice que el código existe pero todavía no está commiteado.
 - [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
 - [ ] Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo) midiendo eventos falsos.
-- [ ] Firmware: 5 salidas por GPIO configurables — LEDs en octubre, servos en noviembre (bloqueado por hardware, llega en unas semanas) — y enganchar las señales de la detección a LEDs y sonidos que le den expresión a la papelera (objeto no reconocido, cayó, se trabó).
 - [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
 - [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
 - [ ] Correr el playbook de Ansible (`infra/ansible/`) contra una Pi real y registrar el resultado en `BITACORA.md`.
 - [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
-- [ ] Sacar `docs/entregas/Plan de Proyecto-G5.pdf` de `main` y armar el ruleset de `entrega_*` en GitHub.
 
 Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
 

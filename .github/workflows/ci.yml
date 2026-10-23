@@ -115,10 +115,10 @@ jobs:
       - name: tests_de_deteccion
         run: python -m unittest discover -s raspberry/tests -v
 
-    # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
+  # promoción de una entrega: un PR de main hacia una rama entrega_*. Solo se acepta ese origen, y se chequea el
   # formato de los PDFs de docs/entregas/ que cambian respecto de la rama destino (los de esa entrega) con
-  # prolijito y el perfil .github/prolijito/ecosort-entrega.yaml: falla por fuente, tamaño e interlineado;
-  # el resto queda como aviso en las anotaciones y en el resumen del job.
+  # prolijito (https://github.com/festradax07/prolijito) y el perfil .github/prolijito/ecosort-entrega.yaml:
+  # falla por fuente, tamaño e interlineado; el resto queda como aviso en las anotaciones y en el resumen del job.
   entrega:
     if: startsWith(github.base_ref, 'entrega_')
     runs-on: ubuntu-latest
@@ -153,7 +153,7 @@ jobs:
 
       - name: chequear_formato
         if: steps.pdfs.outputs.lista != ''
-        uses: festradax07/prolijito@v0.1.0
+        uses: festradax07/prolijito@v0.3.1
         with:
           profile: ecosort-entrega
           profiles-dir: .github/prolijito
@@ -165,7 +165,6 @@ jobs:
           name: chequeo-formato
           path: prolijito-reportes/
           if-no-files-found: ignore
-
 
   # infra/ansible/ (empaquetado de la instalación de la Pi): nada de esto corre contra hardware
   # real (eso se valida a mano y se registra en BITACORA.md), solo sintaxis y la plantilla del
