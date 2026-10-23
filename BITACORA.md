@@ -125,3 +125,12 @@ Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no d
 - Correr el playbook de Ansible contra una Pi real.
 - Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
 - El resto de lo que ya venía pendiente de la Semana 4 (negativos para `ninguno`, calibración de umbrales, firmware, quinta compuerta, comparación de backbones) sigue abierto.
+
+**Semana 3**
+
+Además de las tareas planificadas, se incorporan los siguientes **avances por equipo**:
+
+* **Mica:**
+* **Desarrollo y pruebas de hardware:** Se avanzó en el código de control de los servomotores y se validó con éxito su integración con la cámara: al detectar un objeto metálico, se activa el servomotor correspondiente a dicha categoría.
+* **Documentación y soporte:** Se redactó y subió la documentación para utilizar el proyecto con el nuevo material, incluyendo una guía de posibles soluciones a los problemas detectados durante las pruebas.
+* **Material audiovisual:** Se subió material gráfico y videos demostrativos que evidencian el funcionamiento del sistema.
