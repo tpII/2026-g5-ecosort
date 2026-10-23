@@ -1,0 +1,68 @@
+---
+# EcoSort — instalación y despliegue en la Raspberry Pi (docs/guia-instalacion-raspberry.md).
+#
+# Automatiza los pasos de la guía que son estado de la máquina, no verificación a ojo ni algo que
+# pase fuera de la Pi:
+#   2  Mosquitto (paquetes + config + servicio)
+#   4  herramientas de la cámara USB (+ grupo "video")
+#   5  entorno virtual de Python + TensorFlow Lite (ai-edge-litert)
+#   7  copiar raspberry/ y schema/
+#   10 el servicio systemd de ecosort_pi.py — reemplaza al `nohup ... &` manual (ADR 0006)
+#
+# Sigue siendo manual, y por qué:
+#   1  SSH: es cómo Ansible llega a la Pi. Solo hace falta el inventario (inventory/hosts.example.yml).
+#   3  probar MQTT con MQTTX: una verificación interactiva, no cambia estado.
+#   6  entrenar el modelo: corre en Google Colab, fuera de la Pi.
+#   8  medir rendimiento: tag "verificar", no forma parte de una corrida normal (ver README.md).
+#   9  enfocar la cámara: hay que mirar el video y girar la lente a mano.
+#   Modo Access Point (192.168.20.0/28): la guía dice que hoy se prueba con internet compartido,
+#   todavía no está implementado ni a mano — no hay nada que reproducir todavía (ver README.md).
+#
+# Uso:
+#   cd infra/ansible
+#   ansible-galaxy collection install -r requirements.yml   # una vez
+#   cp inventory/hosts.example.yml inventory/hosts.yml      # y completar con la IP real
+#   ansible-playbook pi.yml -k -K                           # pide la contraseña de SSH y de sudo
+#
+- name: EcoSort — Raspberry Pi
+  hosts: pi
+  gather_facts: true
+
+  tasks:
+    - name: Mosquitto (paso 2)
+      ansible.builtin.import_tasks: tasks/mosquitto.yml
+      tags: [mosquitto]
+
+    - name: Cámara USB (paso 4)
+      ansible.builtin.import_tasks: tasks/camara.yml
+      tags: [camara]
+
+    - name: Entorno de Python + TFLite (paso 5)
+      ansible.builtin.import_tasks: tasks/entorno_python.yml
+      tags: [entorno]
+
+    - name: Copiar raspberry/ y schema/ (paso 7)
+      ansible.builtin.import_tasks: tasks/despliegue.yml
+      tags: [despliegue]
+
+    - name: Servicio systemd de ecosort_pi.py (paso 10)
+      ansible.builtin.import_tasks: tasks/servicio.yml
+      tags: [servicio]
+
+    - name: Medir rendimiento del modelo (paso 8, opcional)
+      ansible.builtin.import_tasks: tasks/verificar.yml
+      tags: [never, verificar]
+
+  handlers:
+    - name: reiniciar mosquitto
+      become: true
+      ansible.builtin.systemd:
+        name: mosquitto
+        state: restarted
+
+    - name: reiniciar ecosort_pi
+      become: true
+      ansible.builtin.systemd:
+        name: ecosort_pi
+        state: restarted
+        daemon_reload: true

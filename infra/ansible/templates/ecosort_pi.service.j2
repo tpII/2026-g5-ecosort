@@ -1,0 +1,17 @@
+[Unit]
+Description=EcoSort - deteccion de residuos por camara (Raspberry Pi)
+Documentation=https://github.com/tpII/2026-g5-ecosort/blob/main/docs/guia-instalacion-raspberry.md
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ecosort_user }}
+WorkingDirectory={{ ecosort_dir }}/raspberry
+EnvironmentFile=/etc/ecosort/ecosort_pi.env
+ExecStart={{ ecosort_venv }}/bin/python ecosort_pi.py --modelo modelo/{{ ecosort_modelo }}{{ ' --video' if ecosort_video else '' }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

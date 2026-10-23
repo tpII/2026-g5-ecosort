@@ -1,0 +1,31 @@
+# Override para desarrollar/probar SIN la Raspberry Pi: suma un broker Mosquitto local
+# (con la misma conf que usa la Pi) y apunta adapter y dashboard a él.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   python ../raspberry/ecosort_mqtt.py     # publica eventos falsos en localhost:1883
+#                                           # (necesita paho-mqtt instalado en tu Python)
+#
+# Frontend con recarga en vivo: el backend lee index.html del disco en cada request,
+# así que editar dashboard/frontend/index.html y refrescar el navegador alcanza.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ../raspberry/mosquitto/ecosort.conf:/mosquitto/config/mosquitto.conf:ro
+
+  adapter:
+    environment:
+      ECOSORT_BROKER: mosquitto
+    depends_on:
+      - mosquitto
+
+  dashboard:
+    environment:
+      ECOSORT_BROKER: mosquitto
+    depends_on:
+      - mosquitto
+    volumes:
+      - ./dashboard/frontend:/app/frontend:ro
