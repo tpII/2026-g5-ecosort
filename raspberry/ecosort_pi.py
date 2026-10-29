@@ -37,9 +37,41 @@ from deteccion import Cuadro, Deteccion, Estado, Parametros, fraccion_distinta
 from ecosort_mqtt import EcoSortMQTT
 from inferencia_pi import Clasificador
 
-PARAMETROS = Parametros()   # umbrales de la detección (raspberry/deteccion.py): sin calibrar con la cámara real
+PARAMETROS = Parametros(
+    # Primer ajuste empírico con cámara real (B4, ver BITACORA.md): por defecto, cualquier
+    # movimiento (hasta el temblor de la mano o ruido del sensor) reinicia la cuenta de quietud
+    # a cero, y 8 cuadros quietos seguidos a ~8 fps piden ~1 s de pulso perfecto — se sentía como
+    # que "no respondía" o que hacía falta un ángulo exacto. Se relaja sin sacar la protección
+    # (sigue exigiendo presencia + quietud + tamaño antes de correr el modelo):
+    umbral_quietud=0.02,   # antes 0.01: tolera algo más de temblor/ruido entre cuadro y cuadro
+    frames_quietud=5,      # antes 8 (~1 s): ahora ~0.6 s a 8 fps nominales (la fps real puede ser menor)
+    area_max=0.70,         # antes 0.60: no descarta por "tamaño" un objeto sostenido cerca de cámara
+    frames_ausente=4,      # antes 8: más rápido en notar que el objeto (y la mano) ya se fueron de
+                            # encima de la plataforma — con fps real por debajo del nominal, 8 cuadros
+                            # se sentían como ~10 s hasta poder analizar el siguiente objeto
+    # umbral_conf: 0.70 -> 0.55, TRADE-OFF EXPLÍCITO (29/10, ver BITACORA.md), no una mejora real de
+    # confianza: con el modelo actual, la etiqueta más probable suele ser la correcta aunque quede
+    # por debajo de 0.70, y hoy eso se pierde entero en orgánico. Bajarlo acepta más esos casos como
+    # clasificación real, a costa de más contaminación cruzada cuando SÍ se equivoca. Revisar este
+    # valor en cuanto haya un modelo reentrenado con datos propios (B1/B2) — ahí la confianza real
+    # debería subir y este número debería poder volver a acercarse a 0.70.
+    umbral_conf=0.55,
+)
 DIF_PIXEL = 30              # diferencia de gris (0-255) para considerar que un píxel cambió respecto del fondo
 DIF_MOV = 20                # ... respecto del cuadro anterior: eso es movimiento
+
+
+def recorte_centrado(forma, fraccion):
+    """Cuadrado centrado del cuadro (misma idea que vision/webcam_test.py:get_roi_box): simula en
+    software el collar centrador del gabinete, que todavía no está armado. Se usa para medir
+    presencia/quietud y para lo que se le pasa al modelo — así el ruido de los bordes (luz,
+    sombras, algo que se mueve al costado) no reinicia la cuenta de quietud, y el objeto ocupa más
+    del cuadro que se clasifica en vez de diluirse en el resto de la imagen."""
+    h, w = forma[:2]
+    lado = int(min(h, w) * fraccion)
+    cx, cy = w // 2, h // 2
+    x1, y1 = cx - lado // 2, cy - lado // 2
+    return x1, y1, x1 + lado, y1 + lado
 
 
 class Fondo:
@@ -71,7 +103,7 @@ class Fondo:
 
 
 class Detector:
-    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False):
+    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False, roi_fraccion=0.9):
         self.clf, self.pub, self.modelo, self.video = clf, pub, modelo, video
         self.periodo = 1.0 / fps
         self.cap = cv2.VideoCapture(cam_id, cv2.CAP_V4L2)
@@ -83,6 +115,7 @@ class Detector:
             raise SystemExit(f"No se pudo abrir /dev/video{cam_id} "
                              "(¿quedó corriendo vista_en_vivo.py? -> pkill -f vista_en_vivo.py)")
         self.fondo = Fondo()
+        self.roi = recorte_centrado((480, 640), roi_fraccion)   # fijo: la resolución de captura no cambia
         # Atributos que usa el servidor de video (mismo formato que vista_en_vivo.Camara)
         self.cond = threading.Condition()
         self.jpeg = None
@@ -122,20 +155,30 @@ class Detector:
         ultimo_vivo = 0.0
         total = 0
         ultima = None   # última decisión: se muestra mientras se espera que la plataforma se libere
+        ultimo_fps, cuadros_fps = time.monotonic(), 0   # fps real del loop, para calibrar frames_* a ojo
 
         while True:
             t0 = time.monotonic()
+            cuadros_fps += 1
+            if t0 - ultimo_fps >= 5.0:
+                print(f"[fps] {cuadros_fps / (t0 - ultimo_fps):.1f} cuadros/s reales "
+                      f"(nominal: {1 / self.periodo:.0f})")
+                ultimo_fps, cuadros_fps = t0, 0
             frame = self._leer()
             if frame is None:
                 time.sleep(0.1)
                 continue
             original = frame.copy()
+            x1, y1, x2, y2 = self.roi
+            recorte = frame[y1:y2, x1:x2]
 
-            # 1) Qué cambió en la escena (barato: imagen chica) y, mientras algo se asienta, qué tan nítido
-            cambio, g = self.fondo.medir(frame)
+            # 1) Qué cambió en el recorte centrado (no en el cuadro completo: lo que se mueve fuera
+            # de ahí no cuenta ni como presencia ni como quietud — ver recorte_centrado) y, mientras
+            # algo se asienta, qué tan nítido
+            cambio, g = self.fondo.medir(recorte)
             cambio_prev = fraccion_distinta(g, g_prev, DIF_MOV) if g_prev is not None else 0.0
             g_prev = g
-            nitidez = self._nitidez(frame, g) if maquina.estado is Estado.ASENTANDO else 0.0
+            nitidez = self._nitidez(recorte, g) if maquina.estado is Estado.ASENTANDO else 0.0
 
             # 2) La máquina decide. El modelo solo corre si pasó la quietud y la plausibilidad.
             tiempos = []
@@ -145,7 +188,7 @@ class Detector:
                 tiempos.append(ms)
                 return probs
 
-            r = maquina.paso(Cuadro(cambio, cambio_prev, nitidez, frame), clasificar)
+            r = maquina.paso(Cuadro(cambio, cambio_prev, nitidez, recorte), clasificar)
             if maquina.puede_aprender_fondo:
                 self.fondo.aprender(g)
 
@@ -212,6 +255,8 @@ class Detector:
                 time.sleep(espera)
 
     def _video(self, frame, original, texto):
+        x1, y1, x2, y2 = self.roi
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (80, 255, 80), 1)   # recorte que de verdad se analiza
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), (0, 0, 0), -1)
         cv2.putText(frame, texto, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (80, 255, 80), 2)
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -226,6 +271,12 @@ if __name__ == "__main__":
     ap.add_argument("--modelo", required=True)
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--video", action="store_true", help="servir el video en el puerto 8000")
+    ap.add_argument("--roi-fraccion", type=float, default=0.9,
+                     help="lado del recuadro central que se analiza y se clasifica, como fracción "
+                          "del lado más chico del cuadro (0-1); ver recorte_centrado. Default alto "
+                          "a propósito: con el objeto sostenido en mano a distancia variable, un "
+                          "recorte ajustado corta el objeto (ver BITACORA.md) — conviene volver a "
+                          "ajustar esto cuando haya una distancia cámara-objeto fija (gabinete real)")
     # ECOSORT_BROKER / ECOSORT_DISPOSITIVO: lo que varía por Pi física (qué broker, con qué
     # identidad se publica). Los lee systemd desde infra/ansible/templates/ecosort_pi.env.j2
     # (EnvironmentFile); el flag sigue existiendo para correrlo a mano y gana si se pasa.
@@ -235,7 +286,7 @@ if __name__ == "__main__":
 
     clf = Clasificador(args.modelo)
     pub = EcoSortMQTT(dispositivo_id=args.dispositivo, host=args.broker)
-    det = Detector(clf, pub, args.modelo, args.cam, video=args.video)
+    det = Detector(clf, pub, args.modelo, args.cam, video=args.video, roi_fraccion=args.roi_fraccion)
 
     if args.video:
         from http.server import ThreadingHTTPServer

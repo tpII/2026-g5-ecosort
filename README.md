@@ -255,7 +255,8 @@ corriente de los servos) — detalle en `BITACORA.md`, Semana 7 y 8.
 - [ ] Correr el playbook de Ansible (`infra/ansible/`) contra una Pi real y registrar el resultado en `BITACORA.md`.
 - [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
 
-Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md).
+Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md). Hallazgo urgente: el código de
+los servos de la Semana 9 todavía no está mergeado a `main`.
 
 Cronograma general: dos tramos de entrega (octubre / noviembre). ML es la ruta
 crítica; la observabilidad del dispositivo se aborda recién cerca de la
