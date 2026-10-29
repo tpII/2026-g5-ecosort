@@ -2,6 +2,7 @@
 
     python ecosort_pi.py --modelo ecosort_int8.tflite           # detecta, cuenta y publica
     python ecosort_pi.py --modelo ecosort_int8.tflite --video   # además video en http://<pi>:8000
+    python ecosort_pi.py --modelo ecosort_int8.tflite --servos  # además abre la compuerta física (GPIO)
 
 IMPORTANTE: al arrancar, la cámara tiene que ver la escena VACÍA unos 2 segundos.
 Ahí aprende cómo es el fondo.
@@ -21,7 +22,8 @@ Tópicos MQTT que publica:
     ecosort/<id>/eventos  -> un mensaje por residuo aceptado o incierto (QoS 1), ver docs/contrato-mqtt.md
 
 Necesita en la misma carpeta: inferencia_pi.py, ecosort_mqtt.py, clases.py, deteccion.py,
-labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py si se usa --video.
+labels.txt, y la carpeta schema/ (schema/clases.json). Además vista_en_vivo.py si se usa --video,
+y servos.py (+ gpiozero) si se usa --servos.
 """
 
 import argparse
@@ -32,13 +34,13 @@ import time
 import cv2
 import numpy as np
 
-from clases import DESCARTES
+from clases import DESCARTES, compuerta_de, producto_de
 from deteccion import Cuadro, Deteccion, Estado, Parametros, fraccion_distinta
 from ecosort_mqtt import EcoSortMQTT
 from inferencia_pi import Clasificador
 
 PARAMETROS = Parametros(
-    # Primer ajuste empírico con cámara real (B4, ver BITACORA.md): por defecto, cualquier
+    # Primer ajuste empírico con cámara real (ver BITACORA.md): por defecto, cualquier
     # movimiento (hasta el temblor de la mano o ruido del sensor) reinicia la cuenta de quietud
     # a cero, y 8 cuadros quietos seguidos a ~8 fps piden ~1 s de pulso perfecto — se sentía como
     # que "no respondía" o que hacía falta un ángulo exacto. Se relaja sin sacar la protección
@@ -53,12 +55,20 @@ PARAMETROS = Parametros(
     # confianza: con el modelo actual, la etiqueta más probable suele ser la correcta aunque quede
     # por debajo de 0.70, y hoy eso se pierde entero en orgánico. Bajarlo acepta más esos casos como
     # clasificación real, a costa de más contaminación cruzada cuando SÍ se equivoca. Revisar este
-    # valor en cuanto haya un modelo reentrenado con datos propios (B1/B2) — ahí la confianza real
+    # valor en cuanto haya un modelo reentrenado con datos propios — ahí la confianza real
     # debería subir y este número debería poder volver a acercarse a 0.70.
     umbral_conf=0.55,
 )
 DIF_PIXEL = 30              # diferencia de gris (0-255) para considerar que un píxel cambió respecto del fondo
 DIF_MOV = 20                # ... respecto del cuadro anterior: eso es movimiento
+
+
+def _clase_y_compuerta(d):
+    """Qué compuerta corresponde a una decisión aceptada o incierta: la misma regla que
+    ecosort_mqtt.armar_evento usa para el evento que se publica (ADR 0002: incierto se fuerza a
+    'organico'), para que el servo que se abre sea siempre el mismo contenedor donde cae el evento."""
+    clase = "organico" if d.tipo == "incierto" else producto_de(d.etiqueta)
+    return clase, compuerta_de(clase)
 
 
 def recorte_centrado(forma, fraccion):
@@ -103,8 +113,9 @@ class Fondo:
 
 
 class Detector:
-    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False, roi_fraccion=0.9):
+    def __init__(self, clf, pub, modelo, cam_id=0, fps=8, video=False, roi_fraccion=0.9, compuertas=None):
         self.clf, self.pub, self.modelo, self.video = clf, pub, modelo, video
+        self.compuertas = compuertas   # servos.Compuertas, o None (sin hardware: solo se publica el evento)
         self.periodo = 1.0 / fps
         self.cap = cv2.VideoCapture(cam_id, cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -198,10 +209,18 @@ class Detector:
                 if d.tipo in ("aceptado", "incierto"):
                     # incierto: mismo evento, pero armar_evento fuerza la clase a "organico"
                     # (ADR 0002) cuando se le pasa un motivo — el modelo vio d.etiqueta, no organico.
+                    _, compuerta = _clase_y_compuerta(d)
+                    # compuerta in self.compuertas.pines: hoy solo hay servo para 1-4 (metal, la
+                    # quinta compuerta, todavía no tiene servo propio — ver BITACORA.md). Sin eso,
+                    # el evento se publica igual, pero accionado queda en False (no se movió nada).
+                    accionado = bool(self.compuertas and compuerta in self.compuertas.pines)
+                    if accionado:
+                        self.compuertas.abrir(compuerta)   # no bloquea: corre en otro hilo
                     self.pub.publicar_evento(d.etiqueta, d.confianza,
                                              latencia_ms=round(sum(tiempos) / len(tiempos), 1),
                                              modelo=self.modelo,
-                                             motivo=d.motivo if d.tipo == "incierto" else None)
+                                             motivo=d.motivo if d.tipo == "incierto" else None,
+                                             accionado=accionado)
                     total += 1
                     if d.tipo == "aceptado":
                         print(f"[{total}] contado: {d.etiqueta} ({d.confianza:.0%})")
@@ -282,11 +301,20 @@ if __name__ == "__main__":
     # (EnvironmentFile); el flag sigue existiendo para correrlo a mano y gana si se pasa.
     ap.add_argument("--broker", default=os.getenv("ECOSORT_BROKER", "localhost"))
     ap.add_argument("--dispositivo", default=os.getenv("ECOSORT_DISPOSITIVO", "ecosort-01"))
+    ap.add_argument("--servos", action="store_true",
+                     help="abrir de verdad la compuerta correspondiente por GPIO (raspberry/servos.py). "
+                          "Requiere gpiozero y los 4 servos conectados; sin este flag, el evento se "
+                          "publica igual pero no se mueve nada (accionado: false)")
     args = ap.parse_args()
 
     clf = Clasificador(args.modelo)
     pub = EcoSortMQTT(dispositivo_id=args.dispositivo, host=args.broker)
-    det = Detector(clf, pub, args.modelo, args.cam, video=args.video, roi_fraccion=args.roi_fraccion)
+    compuertas = None
+    if args.servos:
+        from servos import Compuertas
+        compuertas = Compuertas()
+    det = Detector(clf, pub, args.modelo, args.cam, video=args.video, roi_fraccion=args.roi_fraccion,
+                   compuertas=compuertas)
 
     if args.video:
         from http.server import ThreadingHTTPServer
@@ -303,3 +331,5 @@ if __name__ == "__main__":
         pass
     finally:
         pub.cerrar()
+        if compuertas:
+            compuertas.cerrar()
