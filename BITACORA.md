@@ -134,3 +134,19 @@ Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no d
 - Correr el playbook de Ansible contra una Pi real.
 - Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
 - El resto de lo que ya venía pendiente de la Semana 4 (negativos para `ninguno`, calibración de umbrales, firmware, quinta compuerta, comparación de backbones) sigue abierto.
+
+## [2026-10-28] - Semana 10
+
+### Avances del proyecto (resumen)
+
+- Primera corrida de Ansible contra la Pi real: encontró y corrigió un bug de despliegue (Mosquitto
+  no reiniciaba solo tras actualizar su configuración).
+- Primera validación end-to-end contra hardware real (cámara → modelo → MQTT → SQLite → dashboard),
+  con eventos reales llegando bien.
+- Confianza del modelo sistemáticamente baja con objetos reales, así que casi todo caía en
+  `organico`. Se descartó un bug de código (preprocesamiento revisado y correcto).
+- Calibración de los umbrales de detección en casa con la Pi y la cámara: se relajaron tiempos de
+  quietud/espera (sentía "lento"), se bajó el umbral de confianza como parche explícito (no
+  resuelve el modelo de fondo) y se probó un recorte centrado del cuadro, ajustado tras un primer
+  intento demasiado agresivo.
+- Pendiente real: reentrenar con datos propios es lo único que arregla la confianza de fondo.
