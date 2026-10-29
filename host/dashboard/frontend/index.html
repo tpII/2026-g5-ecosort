@@ -36,6 +36,9 @@ button,.boton{border:0;border-radius:8px;padding:10px 16px;font-size:14px;cursor
        text-decoration:none;font-family:inherit}
 .boton{background:var(--verde);color:#fff} .peligro{background:transparent;color:var(--rojo);border:1px solid var(--rojo)}
 .vacio{color:var(--sub);font-style:italic}
+.grafico{position:relative;height:220px}
+.stats-linea{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--sub)}
+.stats-linea b{color:var(--txt)}
 </style></head><body>
 <header>
   <h1>♻️ Eco<span>Sort</span></h1>
@@ -65,7 +68,22 @@ button,.boton{border:0;border-radius:8px;padding:10px 16px;font-size:14px;cursor
     <table><thead><tr><th>Hora</th><th>Residuo</th><th>Confianza</th></tr></thead>
     <tbody id="ultimos"></tbody></table>
   </section>
+  <section class="card">
+    <h2>Por clase (detalle)</h2>
+    <div class="grafico"><canvas id="grafico-clases"></canvas></div>
+    <div class="stats-linea" id="pureza-organico"></div>
+  </section>
+  <section class="card">
+    <h2>Evolución diaria</h2>
+    <div class="grafico"><canvas id="grafico-serie"></canvas></div>
+  </section>
+  <section class="card">
+    <h2>Patrón horario</h2>
+    <div class="grafico"><canvas id="grafico-horas"></canvas></div>
+    <div class="stats-linea" id="stats-latencia"></div>
+  </section>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 const VIDEO_URL = __VIDEO_URL__ || `http://${location.hostname}:8000/stream`;
 const NOMBRES = {cardboard:"Cartón", glass:"Vidrio", metal:"Metal", paper:"Papel", plastic:"Plástico",
@@ -80,6 +98,67 @@ let ultimoVivo = 0;
 
 async function cargar() {
   try { datos = await (await fetch("/api/resumen")).json(); pintar(); } catch (e) {}
+}
+
+// Gráficos "al estilo Grafana" sobre /api/estadisticas/* (agregado del lado del servidor,
+// estadisticas.py): no es la fuente en vivo (/api/resumen), es la serie histórica y la calidad
+// por clase. Se refrescan con los mismos eventos SSE que ya disparaban cargar(), más un
+// intervalo propio como respaldo si se perdiera algún SSE.
+const colorVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const COLORES_CLASE = ["#2e7d32", "#1565c0", "#6a1b9a", "#ef6c00", "#546e7a", "#ad1457"];
+Chart.defaults.color = colorVar("--sub");
+Chart.defaults.borderColor = colorVar("--borde");
+
+const graficoClases = new Chart($("grafico-clases"), {
+  type: "doughnut",
+  data: {labels: [], datasets: [{data: [], backgroundColor: COLORES_CLASE}]},
+  options: {responsive: true, maintainAspectRatio: false, plugins: {legend: {position: "bottom"}}},
+});
+const graficoSerie = new Chart($("grafico-serie"), {
+  type: "line",
+  data: {labels: [], datasets: [{label: "Eventos", data: [], borderColor: colorVar("--verde"),
+          backgroundColor: colorVar("--verde2"), tension: .3, fill: true}]},
+  options: {responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}},
+            scales: {y: {beginAtZero: true, ticks: {precision: 0}}}},
+});
+const graficoHoras = new Chart($("grafico-horas"), {
+  type: "bar",
+  data: {labels: [...Array(24).keys()].map(h => `${h}h`),
+         datasets: [{label: "Eventos", data: Array(24).fill(0), backgroundColor: colorVar("--verde")}]},
+  options: {responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}},
+            scales: {y: {beginAtZero: true, ticks: {precision: 0}}}},
+});
+
+async function cargarEstadisticas() {
+  try {
+    const [resumen, serie, horas] = await Promise.all([
+      fetch("/api/estadisticas/resumen").then(r => r.json()),
+      fetch("/api/estadisticas/serie?agrupar=dia").then(r => r.json()),
+      fetch("/api/estadisticas/serie?agrupar=hora_del_dia").then(r => r.json()),
+    ]);
+    const clases = Object.keys(resumen.por_clase);
+    graficoClases.data.labels = clases.map(nombre);
+    graficoClases.data.datasets[0].data = clases.map(c => resumen.por_clase[c].total);
+    graficoClases.update();
+
+    const org = resumen.por_clase.organico;
+    $("pureza-organico").innerHTML = org
+      ? `<span>Orgánico genuino: <b>${org.genuino}</b></span>
+         <span>Incierto (baja confianza / inconsistente): <b>${org.total - org.genuino}</b></span>`
+      : `<span class="vacio">Todavía no hay eventos de orgánico</span>`;
+
+    graficoSerie.data.labels = serie.puntos.map(p => p.clave);
+    graficoSerie.data.datasets[0].data = serie.puntos.map(p => p.total);
+    graficoSerie.update();
+
+    graficoHoras.data.datasets[0].data = horas.puntos.map(p => p.total);
+    graficoHoras.update();
+
+    const lat = resumen.latencia_ms;
+    $("stats-latencia").innerHTML = lat
+      ? `<span>Latencia p50: <b>${lat.p50} ms</b></span><span>p95: <b>${lat.p95} ms</b></span><span>n = ${lat.n}</span>`
+      : `<span class="vacio">Sin datos de latencia todavía</span>`;
+  } catch (e) {}
 }
 
 function pintar() {
@@ -126,22 +205,25 @@ function vivo(d) {
 
 const es = new EventSource("/api/stream");
 es.addEventListener("vivo", e => vivo(JSON.parse(e.data)));
-es.addEventListener("evento", cargar);
-es.addEventListener("reinicio", cargar);
+es.addEventListener("evento", () => { cargar(); cargarEstadisticas(); });
+es.addEventListener("reinicio", () => { cargar(); cargarEstadisticas(); });
 es.addEventListener("estado", e => {
   const d = JSON.parse(e.data); datos.estado[d.dispositivo] = d.estado; pintarEstado();
 });
-es.onopen = cargar;
+es.onopen = () => { cargar(); cargarEstadisticas(); };
 setInterval(pintarEstado, 1000);
+setInterval(cargarEstadisticas, 30000);   // respaldo si se perdiera algún SSE, como el auto-refresh de un dashboard
 
 $("reiniciar").onclick = async () => {
   if (!confirm("¿Borrar TODOS los datos registrados?\n\nSi los querés conservar, descargá el CSV antes.")) return;
   await fetch("/api/reiniciar", {method: "POST"});
   cargar();
+  cargarEstadisticas();
 };
 
 $("video").src = VIDEO_URL;
 $("video").onerror = () => { $("video").hidden = true; $("video-nota").hidden = false; };
 cargar();
+cargarEstadisticas();
 </script>
 </body></html>

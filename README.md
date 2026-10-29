@@ -18,9 +18,11 @@ monitoreo propio.
 > residuo (ADR 0009) aceptados. Con objetos reales la confianza del modelo da sistemáticamente baja
 > (preprocesamiento revisado, no es un bug de código): se hizo una primera calibración de los
 > umbrales de detección y se agregó un recorte centrado del cuadro (ROI) para enfocar el análisis,
-> pero la mejora de fondo sigue pendiente de reentrenar con datos propios. **El código de los
-> servos/GPIO (rama `Mica`) todavía no está mergeado a `main`.** Roles del equipo repartidos por
-> área (ver tabla de Equipo).
+> pero la mejora de fondo sigue pendiente de reentrenar con datos propios. Las compuertas reales
+> (`servos.py`, antes solo en la rama `Mica`) ya están conectadas a la detección en `main`, pero
+> **todavía sin probar contra el hardware real**. El dashboard sumó gráficos sobre
+> `/api/estadisticas/*` (por clase, evolución diaria, patrón horario, pureza de orgánico), con
+> auto-refresh. Roles del equipo repartidos por área (ver tabla de Equipo).
 
 ---
 
@@ -239,9 +241,9 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 Detalle semana a semana (hardware, despliegue, calibración, lo que falta) se lleva únicamente en
 [`BITACORA.md`](BITACORA.md), para no mantener el mismo seguimiento duplicado en dos archivos.
 
-Lo más urgente hoy: el código de los servos/GPIO (rama `Mica`) sigue sin mergear a `main`, y la
-mejora de precisión más importante pendiente es reentrenar con fotos propias del gabinete
-(incluyendo `organico` y negativos para `ninguno`).
+Lo más urgente hoy: probar las compuertas (`servos.py`, ya conectadas a la detección en `main`)
+contra el hardware real, y la mejora de precisión más importante pendiente es reentrenar con fotos
+propias del gabinete (incluyendo `organico` y negativos para `ninguno`).
 
 Cronograma general: dos tramos de entrega (octubre / noviembre). ML es la ruta
 crítica; la observabilidad del dispositivo se aborda recién cerca de la

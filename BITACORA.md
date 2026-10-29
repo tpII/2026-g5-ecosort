@@ -27,9 +27,9 @@
 
 ### Pendiente para Semana 2
 
-- Definir circuito de Alimentación para los componentes de Hardware.
-- Hacer pruebas de los modelos a utilizar de manera local dentro del repositorio.
-- Definir en el `docs/plan-de-proyecto.pdf` los modelos de mvp con los que vamos a trabajar en las distintas instancias del proyecto.
+- ~~Definir circuito de Alimentación para los componentes de Hardware.~~
+- ~~Hacer pruebas de los modelos a utilizar de manera local dentro del repositorio.~~
+- ~~Definir en el `docs/plan-de-proyecto.pdf` los modelos de mvp con los que vamos a trabajar en las distintas instancias del proyecto.~~
 
 ## [2026-09-13] - Semana 2
 
@@ -45,10 +45,10 @@
 
 ### Pendiente para Semana 3
 
-- Continuar con las pruebas y selección del modelo de detección de residuos.
-- Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.
-- Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.
-- Continuar con la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.
+- ~~Continuar con las pruebas y selección del modelo de detección de residuos.~~
+- ~~Integrar el modelo seleccionado al entorno de ejecución de la Raspberry Pi.~~
+- ~~Avanzar con la implementación del circuito de alimentación y las pruebas de los componentes de hardware.~~
+- ~~Continuar con la documentación del informe y actualizar los modelos de MVP definidos para las distintas instancias del proyecto.~~
 
 ## [2026-09-23] - Semana 3 y 4
 
@@ -69,8 +69,8 @@
 
 ### Pendiente para esta Semana 5
 - Juntar fotos propias (50–100 por clase, incluyendo orgánico y latas/aluminio para metal) y los negativos para `ninguno` (manos, caras, animales, plataforma vacía; más datasets públicos de personas y animales), y reentrenar — es la mejora de precisión más importante que queda pendiente.
-- Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo), midiendo eventos falsos por sesión y por hora con fondo vacío.
-- Firmware: 5 salidas por GPIO configurables (LEDs en octubre, servos en noviembre), publicando `accionado: true` al activarlas, y luces y sonidos expresivos a partir de las señales de la detección; sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
+- ~~Calibrar los umbrales de la detección con la cámara real~~ y hacer la sesión de "errores" (algun gracioso intentando activar el servo), midiendo eventos falsos por sesión y por hora con fondo vacío.
+- Firmware: 5 salidas por GPIO configurables (LEDs en octubre, servos en noviembre), ~~publicando `accionado: true` al activarlas~~, y luces y sonidos expresivos a partir de las señales de la detección; sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
 - Quinta compuerta (metal): reservar el hueco en la maqueta, comprar el quinto SG90 con el resto del pedido y avisar a la cátedra (el Plan entregado dice 4 compuertas).
 - Comparar MobileNetV2 contra MobileNetV3Small en igualdad de condiciones y decidir con datos (accuracy, tamaño, latencia real en la Pi) cuál queda como backbone definitivo.
 - Armar las unit files de `systemd` para `ecosort_pi.py` en la Pi (ADR 0006), y sumar Prometheus como servicio del compose de `host/` cuando exista `node_exporter`.
@@ -88,9 +88,9 @@
 - **Configuración por `.env`/`EnvironmentFile`**, no hardcodeada: `host/.env.example` y el `EnvironmentFile` del servicio de la Pi. Bug encontrado: el `.service` seteaba `ECOSORT_BROKER` pero el script nunca la leía.
 
 ### Pendientes
-- Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.
-- Correr el playbook de Ansible contra una Pi real.
-- Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
+- ~~Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.~~
+- ~~Correr el playbook de Ansible contra una Pi real.~~
+- ~~Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).~~
 
 ## [2026-10-11] - Semana 6
 
@@ -130,10 +130,10 @@ Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no d
 - Se incorporó `servos.py` al repositorio (`raspberry/`) — según el Informe de Avance 2. Dicho script se encuentra en la Rama `Mica`. 
 
 ### Pendientes
-- Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.
-- Correr el playbook de Ansible contra una Pi real.
-- Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).
-- El resto de lo que ya venía pendiente de la Semana 4 (negativos para `ninguno`, calibración de umbrales, firmware, quinta compuerta, comparación de backbones) sigue abierto.
+- ~~Medir la pureza real del contenedor de orgánico una vez que haya volumen de eventos.~~
+- ~~Correr el playbook de Ansible contra una Pi real.~~
+- ~~Arrancar el frontend del dashboard (ya tiene de dónde traer los gráficos).~~
+- El resto de lo que ya venía pendiente de la Semana 4 (negativos para `ninguno`, ~~calibración de umbrales~~, firmware, quinta compuerta, comparación de backbones) sigue abierto.
 
 ## [2026-10-28] - Semana 10
 
@@ -150,3 +150,13 @@ Sin cambios en el repositorio: dos semanas de pruebas con el hardware real, no d
   resuelve el modelo de fondo) y se probó un recorte centrado del cuadro, ajustado tras un primer
   intento demasiado agresivo.
 - Pendiente real: reentrenar con datos propios es lo único que arregla la confianza de fondo.
+- **Compuertas conectadas a la detección**: `servos.py` (rama `Mica`) se trae a `main` tal cual
+  (ya era autocontenido, sin cambios) y `ecosort_pi.py` abre la compuerta que corresponde a cada
+  decisión aceptada o incierta, con el mismo contrato que ya resolvía el evento (no el diccionario
+  viejo de `Mica`). `accionado: true` solo cuando el servo se mueve de verdad (metal, compuerta 5,
+  todavía no tiene servo físico). Falta probar contra el hardware real (protoboard).
+- **Gráficos en el dashboard** sobre `/api/estadisticas/*` (hasta ahora sin usar desde el
+  frontend): por clase con la pureza real de orgánico (genuino vs. incierto), evolución diaria y
+  patrón horario, con auto-refresh. Cierra el pendiente de "arrancar el frontend" abierto desde la
+  Semana 5, y de paso da la medición de pureza de orgánico que también venía pendiente desde
+  entonces.
