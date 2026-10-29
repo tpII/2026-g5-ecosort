@@ -10,17 +10,17 @@ orgánico y metal) basado en visión por computadora sobre Raspberry Pi 3, con u
 mecanismo físico de 5 compuertas y un pipeline de datos hacia un dashboard de
 monitoreo propio.
 
-> **Estado del repositorio:** Semana 9 — pipeline funcionando de punta a punta: modelo (`vision/`,
-> MobileNetV2 desplegado y probado en la Pi real) → Raspberry Pi (`raspberry/`, captura +
-> detección en cascada + inferencia + MQTT) → host cliente/servidor (`host/`, adapter + dashboard
-> con API de estadísticas, procesos separados con Docker Compose). Contrato de eventos v1
-> (5 clases y 5 compuertas, ADR 0008) y clase `ninguno` para lo que no es un residuo (ADR 0009)
-> aceptados. Informe de Avance 2 entregado (11/10, `docs/entregas/entrega-2.pdf`); el CI de
-> formato pasó a usar [`prolijito`](https://github.com/festradax07/prolijito), herramienta propia
-> del equipo. Semanas 7 y 8 sin cambios de código: pruebas de hardware (servos, fuente de
-> alimentación) — ver BITACORA. Lo más reciente (`incierto`, estadísticas, Ansible) **todavía no se
-> probó contra la Pi real**, solo con tests y Docker. Roles del equipo repartidos por área (ver
-> tabla de Equipo).
+> **Estado del repositorio:** Semana 10 — pipeline validado **end-to-end contra una Raspberry Pi
+> física por primera vez** (Ansible, cámara, MQTT, SQLite, dashboard): modelo (`vision/`,
+> MobileNetV2) → Raspberry Pi (`raspberry/`, captura + detección en cascada + inferencia + MQTT) →
+> host cliente/servidor (`host/`, adapter + dashboard con API de estadísticas, Docker Compose).
+> Contrato de eventos v1 (5 clases y 5 compuertas, ADR 0008) y clase `ninguno` para lo que no es un
+> residuo (ADR 0009) aceptados. Con objetos reales la confianza del modelo da sistemáticamente baja
+> (preprocesamiento revisado, no es un bug de código): se hizo una primera calibración de los
+> umbrales de detección y se agregó un recorte centrado del cuadro (ROI) para enfocar el análisis,
+> pero la mejora de fondo sigue pendiente de reentrenar con datos propios. **El código de los
+> servos/GPIO (rama `Mica`) todavía no está mergeado a `main`.** Roles del equipo repartidos por
+> área (ver tabla de Equipo).
 
 ---
 
@@ -234,36 +234,15 @@ sin framework todavía (ver [ADR 0005](docs/adr/0005-dashboard-propio-reemplaza-
 
 
 
-## Semana 7 y 8: sin cambios de código
+## Estado actual y pendientes
 
-Dos semanas de pruebas con el hardware real: se armó el circuito de alimentación y se probaron los
-cuatro servos conectados a la Pi. Apareció un problema real con la fuente de alimentación (picos de
-corriente de los servos) — detalle en `BITACORA.md`, Semana 7 y 8.
+Detalle semana a semana (hardware, despliegue, calibración, lo que falta) se lleva únicamente en
+[`BITACORA.md`](BITACORA.md), para no mantener el mismo seguimiento duplicado en dos archivos.
 
-## Avances (Semana 9)
-
-- [x] Arreglado el job `entrega` del CI: el perfil propio de [`prolijito`](https://github.com/festradax07/prolijito) (`.github/prolijito/ecosort-entrega.yaml`) nunca se había creado, así que el job habría fallado en la primera promoción a una rama `entrega_*`. De paso, se actualizó el pin de `v0.1.0` a `v0.3.1` (imagen publicada, más rápida y con menos falsos positivos).
-- [x] Sacado `.github/scripts/formato-entregas/` (el chequeador viejo), sin uso desde que el CI pasa por `prolijito`.
-
-## Pendiente para Semana 10
-- [ ] Registrar en la bitácora el problema de la fuente de alimentación (Semana 7 y 8) y su solución.
-- [ ] Incorporar `servos.py` al repositorio — el Informe de Avance 2 dice que el código existe pero todavía no está commiteado.
-- [ ] Fotos propias del gabinete (con orgánico, latas/aluminio para metal, y **negativos para la clase `ninguno`**: manos, caras, animales, plataforma vacía) para reentrenar — la mejora de precisión más importante pendiente.
-- [ ] Calibrar los umbrales de la detección con la cámara real y hacer la sesión de "el gracioso" (10 minutos intentando engañarlo) midiendo eventos falsos.
-- [ ] Sumar a la lista de materiales el sensor de distancia (ToF), un buzzer o parlante pequeño y LEDs de estado.
-- [ ] Quinta compuerta (metal): reservar el hueco en la maqueta y comprar el quinto SG90 con el resto del pedido; avisar a la cátedra (el Plan entregado dice 4).
-- [ ] Correr el playbook de Ansible (`infra/ansible/`) contra una Pi real y registrar el resultado en `BITACORA.md`.
-- [ ] Arrancar el frontend del dashboard (hoy es una tabla y barras estáticas) — ya tiene de dónde traer los gráficos y contadores.
-
-Detalle completo semana a semana en [`BITACORA.md`](BITACORA.md). Hallazgo urgente: el código de
-los servos de la Semana 9 todavía no está mergeado a `main`.
+Lo más urgente hoy: el código de los servos/GPIO (rama `Mica`) sigue sin mergear a `main`, y la
+mejora de precisión más importante pendiente es reentrenar con fotos propias del gabinete
+(incluyendo `organico` y negativos para `ninguno`).
 
 Cronograma general: dos tramos de entrega (octubre / noviembre). ML es la ruta
 crítica; la observabilidad del dispositivo se aborda recién cerca de la
 entrega final.
-
----
-
-## Bitácora
-
-El seguimiento semanal del proyecto se lleva en [`BITACORA.md`](BITACORA.md).
