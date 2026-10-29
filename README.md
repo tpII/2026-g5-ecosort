@@ -30,9 +30,9 @@ monitoreo propio.
 
 | Integrante | usuario | área |
 |---|---|---|
-| Francisco Estrada | `festradax07` | Backend y comunicación (MQTT, adaptador, schema, CI) |
+| Francisco Estrada | `festradax07` | Diseño, backend, frontend y comunicación (MQTT, adaptador, schema, CI, dashboard) |
 | Micaela Taini | `mikitalinda` | Modelo (`vision/`, datos, entrenamiento) |
-| David Alvarez | `davidalvarezok` | Firmware (servos/GPIO) y frontend del dashboard |
+| David Alvarez | `davidalvarezok` | Firmware (servos/GPIO) |
 
 Docente/cátedra: Gastón Maron, seguimiento de decisiones vía los ADR de `docs/adr/`.
 

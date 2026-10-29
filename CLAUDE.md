@@ -1,6 +1,6 @@
 # EcoSort (`tpII/2026-g5-ecosort`)
 
-Contenedor de reciclaje inteligente: clasifica residuos (plástico, papel, vidrio, orgánico, metal) por visión artificial sobre una Raspberry Pi 3 y aciona 5 compuertas físicas (servos SG90) para dirigirlos al contenedor correcto. Proyecto de la materia Taller de Proyecto II (UNLP). Equipo de 3: Francisco Estrada (infra/backend), Juan David Alvarez (embebido/hardware), Micaela Taini (ML/visión). Docente: Gastón Maron.
+Contenedor de reciclaje inteligente: clasifica residuos (plástico, papel, vidrio, orgánico, metal) por visión artificial sobre una Raspberry Pi 3 y aciona 5 compuertas físicas (servos SG90) para dirigirlos al contenedor correcto. Proyecto de la materia Taller de Proyecto II (UNLP). Equipo de 3: Francisco Estrada (diseño, backend, frontend y comunicación), Juan David Alvarez (embebido/hardware), Micaela Taini (ML/visión). Docente: Gastón Maron.
 
 Este archivo es a la vez `CLAUDE.md` y `AGENTS.md` (un *symlink* al otro, mismo contenido real) — así cualquiera de los tres lo tiene como contexto sin importar qué asistente de IA use: Claude Code lo lee solo por el nombre `CLAUDE.md`, varias herramientas con acceso al repo (Cursor, Copilot, Windsurf, Codex CLI, etc.) leen `AGENTS.md` por convención, y para un chat sin acceso al repo (ChatGPT, Gemini web) alcanza con pegar este archivo al principio de la conversación. Edita cualquiera de los dos nombres: es el mismo archivo.
 
